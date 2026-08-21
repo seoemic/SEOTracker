@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+{% block title %}Reportes — SEOTracker{% endblock %}
+{% block page_title %}Reportes y Análisis{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block topbar_actions %}
+<span id="report-ts" style="font-size:12px;color:var(--text-muted);align-self:center;">
+  Datos en tiempo real
+</span>
+<a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-sm">← Dashboard</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- ─── TARJETAS DE MÉTRICAS (KPIs) ────────────────────────────────
+     Muestran los números más importantes de la aplicación de un vistazo. -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-icon">📋</div>
+    <span class="kpi-value" id="kpi-auditorias">{{ total_auditorias }}</span>
+    <span class="kpi-label">Total Auditorías</span>
+  </div>
+  <div class="kpi-card kpi-success">
+    <div class="kpi-icon">🏷️</div>
+    <span class="kpi-value" id="kpi-marcas">{{ total_marcas }}</span>
+    <span class="kpi-label">Marcas Registradas</span>
+  </div>
+  <div class="kpi-card kpi-warn">
+    <div class="kpi-icon">⚡</div>
+    <span class="kpi-value" id="kpi-activas">{{ marcas_activas }}</span>
+    <span class="kpi-label">Marcas Auditadas (30 días)</span>
+  </div>
+  <div class="kpi-card kpi-danger">
+    <div class="kpi-icon">❌</div>
+    <span class="kpi-value" id="kpi-errores">{{ total_errores }}</span>
+    <span class="kpi-label">Errores Acumulados</span>
+  </div>
+</div>
+
+<!-- ─── PRIMERA FILA DE GRÁFICAS ─────────────────────────────────
+     Izquierda: Barras con el total de auditorías por marca.
+     Derecha: Dona mostrando de qué tipo son los errores que hemos encontrado. -->
+<div class="charts-grid">
+
+  <!-- Gráfica de barras: Auditorías por marca -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">📊 Auditorías por Marca</div>
+        <div class="chart-subtitle">Total de ejecuciones históricas</div>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:300px;">
+      <canvas id="chartAuditorias"></canvas>
+    </div>
+  </div>
+
+  <!-- Gráfica de dona: Distribución de errores -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">🍩 Distribución de Errores</div>
+        <div class="chart-subtitle">Proporción acumulada por tipo</div>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:300px;display:flex;align-items:center;justify-content:center;">
+      <canvas id="chartDistribucion" style="max-height:280px;"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- ─── SEGUNDA FILA: EVOLUCIÓN EN EL TIEMPO ─────────────────────
+     Gráfico de líneas que muestra si los errores de una marca suben o bajan
+     con el paso de las revisiones. Incluye un filtro para seleccionar la marca. -->
+<div class="charts-grid single">
+  <div class="chart-card full">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">📈 Evolución de Errores por Revisión</div>
+        <div class="chart-subtitle">Histórico por tipo de error para la marca seleccionada</div>
+      </div>
+      <div class="report-filters" style="margin:0;padding:10px 14px;border:none;background:var(--bg-surface);border-radius:8px;">
+        <label for="filtro-marca">Marca:</label>
+        <select id="filtro-marca">
+          <option value="">— Todas —</option>
+          {% for m in marcas_lista %}
+          <option value="{{ m.id }}">{{ m.marca }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:320px;">
+      <canvas id="chartEvolucion"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TERCERA FILA: ERRORES ACUMULADOS ─────────────────────────
+     Barras apiladas que nos dicen qué marca tiene más errores en total. -->
+<div class="charts-grid single">
+  <div class="chart-card full">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">🔧 Errores Totales por Marca y Tipo</div>
+        <div class="chart-subtitle">Suma acumulada de cada categoría de error</div>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:300px;">
+      <canvas id="chartErroresMarca"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TABLA RESUMEN DE MARCAS ────────────────────────────────────
+     Listado de todas las marcas con sus métricas más recientes y su estado actual. -->
+<div class="report-table-wrap">
+  <div style="padding:16px 20px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <div class="chart-title">📋 Resumen por Marca</div>
+      <div class="chart-subtitle">Último estado de cada marca auditada</div>
+    </div>
+    <input type="text" id="tabla-search" placeholder="Buscar marca…" style="width:200px;font-size:13px;">
+  </div>
+  <table id="tabla-marcas">
+    <thead>
+      <tr>
+        <th>Marca</th>
+        <th>Total Auditorías</th>
+        <th>Última Revisión #</th>
+        <th>Última Fecha</th>
+        <th>Contenidos Arreglados</th>
+        <th>URLs Cambiadas</th>
+        <th>Errores Totales</th>
+        <th>Estado</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in resumen_marcas %}
+      {% set errores = m.total_errores | int %}
+      <tr class="tabla-row">
+        <td><strong>{{ m.marca }}</strong></td>
+        <td style="text-align:center;">
+          <span class="badge badge-blue">{{ m.total_auditorias }}</span>
+        </td>
+        <td style="text-align:center;">
+          {% if m.ultima_revision %}
+            <span class="badge {% if m.ultima_revision == 1 %}badge-green{% elif m.ultima_revision <= 3 %}badge-warn{% else %}badge-red{% endif %}">
+              Rev. {{ m.ultima_revision }}
+            </span>
+          {% else %}
+            <span style="color:var(--text-muted);">—</span>
+          {% endif %}
+        </td>
+        <td style="font-size:12px;color:var(--text-muted);">
+          {% if m.ultima_fecha %}
+            {{ m.ultima_fecha.strftime('%d/%m/%Y') if m.ultima_fecha.strftime is defined else m.ultima_fecha }}
+          {% else %}—{% endif %}
+        </td>
+        <td style="text-align:center;">
+          <span class="badge badge-green">{{ m.total_arreglados | int }}</span>
+        </td>
+        <td style="text-align:center;">
+          <span class="badge badge-blue">{{ m.total_cambiados | int }}</span>
+        </td>
+        <td style="text-align:center;">
+          <span class="err-cell {% if errores == 0 %}zero{% elif errores < 10 %}low{% else %}high{% endif %}">
+            {{ errores }}
+          </span>
+        </td>
+        <td>
+          {% if errores == 0 %}
+            <span class="badge badge-green">✅ Sin errores</span>
+          {% elif errores < 10 %}
+            <span class="badge badge-warn">⚠ Con errores</span>
+          {% else %}
+            <span class="badge badge-red">🔴 Crítico</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('historico', marca_id=m.id) }}" class="btn btn-outline btn-sm">Ver histórico</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:28px;">Sin datos registrados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ─── CONFIGURACIÓN DE GRÁFICAS (Chart.js) ─────────────────────
+     Aquí cargamos los datos que nos mandó Flask y dibujamos los gráficos. -->
+<script>
+// ── Colores corporativos para las gráficas ───────────────────────
+const PALETTE = [
+  '#4fc3f7','#2ecc71','#e74c3c','#f39c12','#9b59b6',
+  '#1abc9c','#e67e22','#3498db','#e91e63','#00bcd4'
+];
+const ERR_LABELS = ['Redirección','No creadas','Meta Título','Meta Desc.','H1','Desc. Corta','Desc. Larga'];
+const ERR_COLORS = ['#f39c12','#e74c3c','#9b59b6','#3498db','#1abc9c','#e67e22','#e91e63'];
+
+const CHART_DEFAULTS = {
+  color: '#e0e0e0',
+  borderColor: '#252540',
+  plugins: { legend: { labels: { color: '#7a7a9a', font: { size: 11 } } } },
+};
+Chart.defaults.color = '#e0e0e0';
+Chart.defaults.borderColor = '#252540';
+
+// ── Datos inyectados desde el servidor (Flask a JS) ──────────────
+const resumenMarcas = {{ resumen_marcas | tojson }};
+const distribucion  = {{ distribucion | tojson }};
+
+// ── 1. Gráfica de barras: Auditorías por marca ───────────────────
+(function() {
+  const labels  = resumenMarcas.map(m => m.marca);
+  const values  = resumenMarcas.map(m => m.total_auditorias);
+  const ctx     = document.getElementById('chartAuditorias').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Auditorías',
+        data: values,
+        backgroundColor: labels.map((_, i) => PALETTE[i % PALETTE.length] + 'cc'),
+        borderColor:     labels.map((_, i) => PALETTE[i % PALETTE.length]),
+        borderWidth: 1,
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw} auditorías` } }
+      },
+      scales: {
+        x: { grid: { color:'#252540' }, ticks: { color:'#7a7a9a' } },
+        y: { grid: { display: false }, ticks: { color:'#e0e0e0', font:{ size:12 } } }
+      }
+    }
+  });
+})();
+
+// ── 2. Gráfica de dona: Proporción de cada tipo de error ─────────
+(function() {
+  if (!distribucion) return;
+  const values = [
+    distribucion.redireccion, distribucion.no_creadas,
+    distribucion.meta_titulo, distribucion.meta_descripcion,
+    distribucion.h1, distribucion.desc_corta, distribucion.desc_larga
+  ].map(Number);
+
+  const total = values.reduce((a,b) => a+b, 0);
+  const ctx   = document.getElementById('chartDistribucion').getContext('2d');
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ERR_LABELS,
+      datasets: [{
+        data: values,
+        backgroundColor: ERR_COLORS.map(c => c + 'cc'),
+        borderColor:     ERR_COLORS,
+        borderWidth: 1,
+        hoverOffset: 8,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: { position: 'right', labels: { color:'#7a7a9a', font:{size:11}, padding:12 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+              return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+})();
+
+// ── 3. Gráfica de líneas: Cómo evolucionan los errores en el tiempo ──
+let chartEvolucion = null;
+
+function buildLineChart(datos) {
+  const ctx = document.getElementById('chartEvolucion').getContext('2d');
+  if (chartEvolucion) chartEvolucion.destroy();
+
+  if (!datos || datos.length === 0) {
+    chartEvolucion = new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          title: { display: true, text: 'Sin datos disponibles para la selección', color: '#7a7a9a' }
+        }
+      }
+    });
+    return;
+  }
+
+  const labels   = datos.map(d => d.fecha_ejecucion + (d.numero_revision ? ` (Rev.${d.numero_revision})` : ''));
+  const errKeys  = ['urls_redireccion','urls_no_creadas','urls_meta_titulo','urls_meta_descripcion','urls_h1','urls_desc_corta','urls_desc_larga'];
+
+  const datasets = errKeys.map((key, i) => ({
+    label: ERR_LABELS[i],
+    data:  datos.map(d => d[key] ?? 0),
+    borderColor:     ERR_COLORS[i],
+    backgroundColor: ERR_COLORS[i] + '22',
+    tension: 0.35,
+    borderWidth: 2,
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    fill: false,
+  }));
+
+  chartEvolucion = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { color:'#7a7a9a', font:{size:11}, padding:14 } },
+        tooltip: { backgroundColor: '#1a1a2e', borderColor: '#252540', borderWidth: 1, titleColor:'#e0e0e0', bodyColor:'#aaa' }
+      },
+      scales: {
+        x: { grid:{ color:'#252540' }, ticks:{ color:'#7a7a9a', maxRotation:30 } },
+        y: { grid:{ color:'#252540' }, ticks:{ color:'#7a7a9a' }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+// Cargamos los datos de todas las marcas apenas abre la página
+fetch('/reportes/api/datos')
+  .then(r => r.json())
+  .then(j => buildLineChart(j.datos || []));
+
+document.getElementById('filtro-marca').addEventListener('change', function() {
+  const id = this.value;
+  const url = id ? `/reportes/api/datos?marca_id=${id}` : '/reportes/api/datos';
+  fetch(url).then(r => r.json()).then(j => buildLineChart(j.datos || []));
+});
+
+// ── 4. Gráfica de barras: Total de errores acumulados por marca ──
+(function() {
+  const labels = resumenMarcas.map(m => m.marca);
+  const ctx    = document.getElementById('chartErroresMarca').getContext('2d');
+
+  // Sumamos los errores y le ponemos un color según la gravedad:
+  // Verde si no hay, naranja si hay poquitos, rojo si hay demasiados.
+  const valores = resumenMarcas.map(m => Number(m.total_errores));
+  const colores = valores.map(v => v === 0 ? '#2ecc71cc' : v < 10 ? '#f39c12cc' : '#e74c3ccc');
+  const borders = valores.map(v => v === 0 ? '#2ecc71'   : v < 10 ? '#f39c12'   : '#e74c3c');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Errores acumulados',
+        data: valores,
+        backgroundColor: colores,
+        borderColor: borders,
+        borderWidth: 1,
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => ` ${ctx.raw} errores acumulados` }
+        }
+      },
+      scales: {
+        x: { grid:{ display:false }, ticks:{ color:'#7a7a9a', font:{size:11} } },
+        y: { grid:{ color:'#252540' }, ticks:{ color:'#7a7a9a' }, beginAtZero:true }
+      }
+    }
+  });
+})();
+
+// ── Buscador en tiempo real para la tabla resumen ───────────────
+document.getElementById('tabla-search').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('#tabla-marcas .tabla-row').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Marcas — SEOTracker{% endblock %}
+{% block page_title %}Marcas{% endblock %}
+
+{% block topbar_actions %}
+  {% if current_user.rol in ('admin', 'lider', 'pm') %}
+  <a href="{{ url_for('marca_nueva') }}" class="btn btn-primary btn-sm">+ Nueva marca</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 20px;">
+  <input type="text" id="busqueda-marcas" class="form-control" placeholder="Buscar marca..." style="width: 100%; max-width: 400px; padding: 10px; border-radius: 6px;">
+</div>
+<div class="table-container">
+  <table id="tabla-marcas">
+    <thead>
+      <tr>
+        <th>Marca</th>
+        <th>Célula</th>
+        <th>País</th>
+        <th>Entorno</th>
+        <th>Responsive</th>
+        <th>Link</th>
+        <th>Notificación</th>
+        {% if current_user.rol in ('admin', 'lider', 'pm') %}<th>Acciones</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in marcas %}
+      <tr>
+        <td><strong>{{ m.marca }}</strong></td>
+        <td>{{ m.celula }}</td>
+        <td>{{ m.pais }}</td>
+        <td><span class="badge badge-blue">{{ m.entorno }}</span></td>
+        <td>
+          {% if m.responsive %}
+            <span class="badge badge-green">Sí</span>
+          {% else %}
+            <span class="badge badge-warn">No</span>
+          {% endif %}
+        </td>
+        <td><a href="{{ m.link_marca }}" target="_blank" style="color:var(--accent);font-size:12px;">Ver sitio ↗</a></td>
+        <td style="font-size:11px;color:var(--text-muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="Impl: {{ m.implementador_email }} / Ger: {{ m.gerente_email }} / PM: {{ m.pm_email }}">
+          <strong>Impl:</strong> {{ m.implementador_email }}<br>
+          <strong>Ger/PM:</strong> {{ m.gerente_email }}
+        </td>
+        {% if current_user.rol in ('admin', 'lider', 'pm') %}
+        <td>
+          <div style="display:flex;gap:6px;">
+            <a href="{{ url_for('marca_editar', marca_id=m.id) }}" class="btn btn-outline btn-sm">Editar</a>
+            {% if current_user.rol in ('admin', 'lider') %}
+            <form method="POST" action="{{ url_for('marca_eliminar', marca_id=m.id) }}" onsubmit="return confirm('¿Eliminar esta marca y todo su historial?')">
+              <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px;">
+          No hay marcas registradas.
+          {% if current_user.rol in ('admin', 'lider', 'pm') %}
+          <a href="{{ url_for('marca_nueva') }}" style="color:var(--accent);">Crear la primera</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+document.getElementById('busqueda-marcas').addEventListener('keyup', function() {
+  var filter = this.value.toLowerCase();
+  var rows = document.querySelectorAll('#tabla-marcas tbody tr');
+  rows.forEach(function(row) {
+    if (row.cells.length > 1) { // Skip "No hay marcas" row
+      var text = row.innerText.toLowerCase();
+      row.style.display = text.includes(filter) ? '' : 'none';
+    }
+  });
+});
+</script>
+{% endblock %}

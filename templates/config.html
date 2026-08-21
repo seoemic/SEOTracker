@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Configuración Global — SEOTracker{% endblock %}
+{% block page_title %}Configuración Global de Notificaciones{% endblock %}
+
+{% block content %}
+<div class="form-card" style="max-width: 600px;">
+  <p style="color:var(--text-secondary); margin-bottom: 20px;">
+    Define los correos globales que recibirán las notificaciones según el ciclo de rastreo.
+  </p>
+  <form method="POST">
+    <div class="form-grid" style="grid-template-columns: 1fr;">
+
+      <div class="form-group">
+        <label for="lider_implementacion">Correo del Líder de Implementación</label>
+        <input type="email" id="lider_implementacion" name="lider_implementacion" value="{{ config.get('lider_implementacion', '') }}" required>
+        <span class="hint">Recibe notificación en todos los rastreos (1, 2, 3 y 4).</span>
+      </div>
+
+      <div class="form-group">
+        <label for="lider_seo">Correo del Líder SEO</label>
+        <input type="email" id="lider_seo" name="lider_seo" value="{{ config.get('lider_seo', '') }}" required>
+        <span class="hint">Recibe notificación a partir del rastreo 3 (rastreos 3 y 4).</span>
+      </div>
+
+      <div class="form-group">
+        <label for="lider_operaciones">Correo del Líder de Operaciones</label>
+        <input type="email" id="lider_operaciones" name="lider_operaciones" value="{{ config.get('lider_operaciones', '') }}" required>
+        <span class="hint">Recibe notificación únicamente en el rastreo 4.</span>
+      </div>
+
+      <hr style="border-color:var(--border); margin: 24px 0;">
+
+      <h3 style="margin-bottom: 16px; color: var(--text-primary); font-size: 1.1rem;">Configuración de Correo Remitente (SMTP)</h3>
+      <p style="color:var(--text-secondary); margin-bottom: 20px; font-size: 0.9rem;">
+        Aquí puedes actualizar el correo y contraseña de aplicación desde el cual se enviarán las auditorías y credenciales.
+      </p>
+
+      <div class="form-group">
+        <label for="smtp_email">Correo Emisor (Gmail)</label>
+        <input type="email" id="smtp_email" name="smtp_email" value="{{ config.get('smtp_email', '') }}">
+      </div>
+
+      <div class="form-group">
+        <label for="smtp_password">Contraseña de Aplicación</label>
+        <input type="text" id="smtp_password" name="smtp_password" value="{{ config.get('smtp_password', '') }}" autocomplete="off">
+        <span class="hint">Es la contraseña de 16 caracteres generada por Google, no tu clave normal.</span>
+      </div>
+
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:24px;justify-content:flex-end;">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline">Cancelar</a>
+      <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

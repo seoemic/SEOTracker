@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ accion }} Célula — SEOTracker{% endblock %}
+{% block page_title %}{{ accion }} Célula{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('celulas') }}" class="btn btn-outline btn-sm">← Volver</a>
+{% endblock %}
+
+{% block content %}
+<div class="form-card" style="max-width:540px;">
+  <form method="POST">
+    <div class="form-grid" style="grid-template-columns:1fr;">
+
+      <div class="form-group">
+        <label for="nombre">Nombre de la Célula *</label>
+        <input type="text" id="nombre" name="nombre"
+               value="{{ celula.nombre if celula else '' }}"
+               required placeholder="Ej: Célula Ecommerce" autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <label for="implementador_email">Correo Implementador *</label>
+        <select id="implementador_email" name="implementador_email" required>
+          <option value="">-- Selecciona un Implementador --</option>
+          {% for u in implementadores %}
+          <option value="{{ u.email }}" {% if celula and celula.implementador_email == u.email %}selected{% endif %}>
+            {{ u.username }} ({{ u.email }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="gerente_email">Correo Gerente de Cuenta *</label>
+        <select id="gerente_email" name="gerente_email" required>
+          <option value="">-- Selecciona un Gestor de Cuenta --</option>
+          {% for u in gestores %}
+          <option value="{{ u.email }}" {% if celula and celula.gerente_email == u.email %}selected{% endif %}>
+            {{ u.username }} ({{ u.email }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="pm_email">Correo PM *</label>
+        <select id="pm_email" name="pm_email" required>
+          <option value="">-- Selecciona un PM --</option>
+          {% for u in pms %}
+          <option value="{{ u.email }}" {% if celula and celula.pm_email == u.email %}selected{% endif %}>
+            {{ u.username }} ({{ u.email }})
+          </option>
+          {% endfor %}
+        </select>
+        <small style="color:var(--text-muted);display:block;margin-top:4px;">Recibirá los mismos correos que el gerente.</small>
+      </div>
+
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:30px;justify-content:flex-end;">
+      <a href="{{ url_for('celulas') }}" class="btn btn-outline">Cancelar</a>
+      <button type="submit" class="btn btn-primary">{{ accion }} Célula</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — SEOTracker{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block topbar_actions %}
+  {% if current_user.rol in ('admin', 'lider', 'pm') %}
+  <a href="{{ url_for('marca_nueva') }}" class="btn btn-primary btn-sm">+ Nueva marca</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if not marcas %}
+<div style="text-align:center;padding:60px 0;color:var(--text-muted);">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" style="opacity:.3;margin-bottom:12px;"><path d="M2 20h20M5 20V8l7-5 7 5v12"/></svg>
+  <p>No hay marcas registradas aún.</p>
+  {% if current_user.rol in ('admin', 'lider', 'pm') %}
+  <a href="{{ url_for('marca_nueva') }}" class="btn btn-primary" style="margin-top:16px;">Crear primera marca</a>
+  {% endif %}
+</div>
+{% else %}
+
+<div style="margin-bottom: 24px;">
+  <input type="text" id="busqueda-dashboard" class="form-control" placeholder="Buscar marca..." style="width: 100%; max-width: 400px; padding: 10px; border-radius: 6px;">
+</div>
+
+<div class="celulas-container">
+{% for celula_name, celula_marcas in marcas|groupby('celula') %}
+  <div class="celula-section" style="margin-bottom: 24px;">
+    <div class="celula-header card card-accent" style="cursor: pointer; padding: 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s ease;" onclick="toggleCelula('{{ loop.index }}')">
+      <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600;">Célula: {{ celula_name }}</h2>
+      <span style="color: var(--text-muted); font-size: 0.9rem;">{{ celula_marcas|length }} marcas <span id="icon-{{ loop.index }}" style="display:inline-block; transition: transform 0.2s;">▼</span></span>
+    </div>
+    
+    <div class="cards-grid" id="celula-{{ loop.index }}" style="display: none;">
+    {% for m in celula_marcas %}
+      {% set ult = m.ultimo %}
+      {% set hay_errores = ult and (
+        (ult.urls_meta_titulo|default(0)) + 
+        (ult.urls_meta_descripcion|default(0)) + 
+        (ult.urls_h1|default(0)) + 
+        (ult.urls_desc_corta|default(0)) + 
+        (ult.urls_desc_larga|default(0))
+      ) > 0 %}
+      <div class="card {% if not ult %}card-accent{% elif hay_errores %}card-danger{% else %}card-ok{% endif %}">
+        <div class="card-header">
+          <div>
+            <div class="card-title">{{ m.marca }}</div>
+            <div class="card-subtitle">{{ m.celula }} · {{ m.pais }} · {{ m.entorno }}</div>
+          </div>
+          <span class="badge {% if m.responsive %}badge-green{% else %}badge-warn{% endif %}">
+            {{ 'Responsive' if m.responsive else 'No resp.' }}
+          </span>
+          {% if m.headers_expirados %}
+          <span class="badge" style="background:#e53935;color:white;margin-left:5px;font-weight:bold;">Headers Expirados</span>
+          {% endif %}
+        </div>
+
+        <!-- Stats de última auditoría -->
+        {% if ult %}
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+          Última: Revisión {{ ult.numero_revision }} —
+          {% if ult.fecha_ejecucion.strftime %}{{ ult.fecha_ejecucion.strftime('%d/%m/%Y') }}{% else %}{{ ult.fecha_ejecucion }}{% endif %}
+        </div>
+        <div class="card-stats">
+          <div class="stat-item"><span class="stat-value" style="color:var(--danger);">{{ ult.urls_meta_titulo }}</span><span class="stat-label">Meta título</span></div>
+          <div class="stat-item"><span class="stat-value" style="color:var(--danger);">{{ ult.urls_meta_descripcion }}</span><span class="stat-label">Meta desc.</span></div>
+          <div class="stat-item"><span class="stat-value" style="color:var(--warn);">{{ ult.urls_h1 }}</span><span class="stat-label">H1</span></div>
+          <div class="stat-item"><span class="stat-value" style="color:var(--warn);">{{ ult.urls_desc_corta }}</span><span class="stat-label">Desc. corta</span></div>
+          <div class="stat-item"><span class="stat-value" style="color:var(--warn);">{{ ult.urls_desc_larga }}</span><span class="stat-label">Desc. larga</span></div>
+        </div>
+        {% if m.proxima %}
+        <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+          Próxima: {% if m.proxima.strftime %}{{ m.proxima.strftime('%d/%m/%Y') }}{% else %}{{ m.proxima }}{% endif %}
+        </div>
+        {% endif %}
+        {% else %}
+        <div style="font-size:13px;color:var(--text-muted);margin:10px 0;">Sin auditorías aún.</div>
+        {% endif %}
+
+        <div class="card-actions">
+          <a href="{{ url_for('historico', marca_id=m.id) }}" class="btn btn-outline btn-sm">Histórico</a>
+          {% if current_user.rol in ('lider', 'implementador') %}
+          <button class="btn btn-primary btn-sm" onclick="forzarAuditoria('{{ m.id }}', '{{ m.marca }}', this)">
+            ▶ Auditar ahora
+          </button>
+          {% endif %}
+          {% if current_user.rol in ('lider', 'implementador', 'pm', 'gestor_cuenta') %}
+          <a href="{{ url_for('marca_editar', marca_id=m.id) }}" class="btn btn-outline btn-sm">Editar</a>
+          {% endif %}
+          {% if current_user.rol == 'admin' %}
+          <button class="btn btn-outline btn-sm" onclick="probarEmail('{{ m.id }}', this)" title="Probar envío de correo">✉</button>
+          {% endif %}
+        </div>
+
+        <!-- Progress bar oculta que aparece al auditar -->
+        <div id="progress-{{ m.id }}" style="display:none;margin-top:10px;">
+          <div style="font-size:12px;color:var(--accent);margin-bottom:4px;" id="prog-label-{{ m.id }}">Iniciando...</div>
+          <div class="progress-bar-wrap"><div class="progress-bar" id="prog-bar-{{ m.id }}" style="width:0%"></div></div>
+        </div>
+      </div>
+    {% endfor %}
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+<script>
+function toggleCelula(id) {
+  var grid = document.getElementById('celula-' + id);
+  var icon = document.getElementById('icon-' + id);
+  if (grid.style.display === 'none' || grid.style.display === '') {
+    grid.style.display = 'grid';
+    icon.style.transform = 'rotate(180deg)';
+  } else {
+    grid.style.display = 'none';
+    icon.style.transform = 'rotate(0deg)';
+  }
+}
+
+document.getElementById('busqueda-dashboard').addEventListener('keyup', function() {
+  var filter = this.value.toLowerCase();
+  var sections = document.querySelectorAll('.celula-section');
+  
+  sections.forEach(function(section) {
+    var cards = section.querySelectorAll('.card:not(.celula-header)');
+    var hasVisibleCard = false;
+    
+    cards.forEach(function(card) {
+      var title = card.querySelector('.card-title').innerText.toLowerCase();
+      if (title.includes(filter)) {
+        card.style.display = '';
+        hasVisibleCard = true;
+      } else {
+        card.style.display = 'none';
+      }
+    });
+    
+    // Hide section entirely if no cards match
+    section.style.display = hasVisibleCard ? '' : 'none';
+    
+    // If filtering, auto-expand sections that have matches
+    if (filter !== '' && hasVisibleCard) {
+      var grid = section.querySelector('.cards-grid');
+      var icon = section.querySelector('.celula-header span[id^="icon-"]');
+      grid.style.display = 'grid';
+      if (icon) icon.style.transform = 'rotate(180deg)';
+    }
+  });
+});
+</script>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,11 @@
+flask
+flask-login
+mysql-connector-python
+pandas
+requests
+gspread
+beautifulsoup4
+oauth2client
+openpyxl
+schedule
+werkzeug

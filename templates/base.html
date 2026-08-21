@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}SEOTracker{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script>
+  // Evitar parpadeo aplicando el tema de forma síncrona
+  const storedTheme = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', storedTheme);
+</script>
+{% block head %}{% endblock %}
+</head>
+<body>
+<!-- BARRA LATERAL (Menú de navegación) -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" style="height: 32px; width: 32px; object-fit: contain;">
+      <h1 style="margin: 0; font-size: 18px;">SEOTracker</h1>
+    </div>
+    <span>Panel de Control</span>
+  </div>
+  <nav class="sidebar-nav">
+    <span class="nav-label">Principal</span>
+    <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint=='dashboard' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </a>
+    <a href="{{ url_for('marcas') }}" class="nav-link {% if 'marca' in request.endpoint %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20M5 20V8l7-5 7 5v12"/></svg>
+      Marcas
+    </a>
+    {% if current_user.rol in ('lider', 'pm') %}
+    <a href="{{ url_for('celulas') }}" class="nav-link {% if 'celula' in request.endpoint %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Células
+    </a>
+    {% endif %}
+    <a href="{{ url_for('rastreo_lista') }}" class="nav-link {% if request.endpoint=='rastreo_lista' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      Rastreo por Lista
+    </a>
+    <a href="{{ url_for('reportes') }}" class="nav-link {% if request.endpoint=='reportes' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Reportes
+    </a>
+    {% if current_user.rol == 'lider' %}
+    <span class="nav-label">Administración</span>
+    <a href="{{ url_for('usuarios') }}" class="nav-link {% if 'usuario' in request.endpoint %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0114 0v2"/></svg>
+      Usuarios
+    </a>
+    <a href="{{ url_for('configuracion') }}" class="nav-link {% if 'configuracion' in request.endpoint %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Configuración
+    </a>
+    {% endif %}
+    <a href="{{ url_for('perfil') }}" class="nav-link {% if request.endpoint=='perfil' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Mi Perfil
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-chip">
+      <div class="user-avatar">{{ current_user.username[0].upper() }}</div>
+      <div class="user-info">
+        <div class="user-name">{{ current_user.username }}</div>
+        <div class="user-role">{{ current_user.rol }}</div>
+      </div>
+      <a href="{{ url_for('logout') }}" title="Cerrar sesión">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </a>
+    </div>
+  </div>
+</aside>
+
+<!-- CONTENIDO PRINCIPAL (Se adapta al espacio restante) -->
+<div class="main-content">
+  <div class="topbar">
+    <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+      <button id="theme-toggle" class="btn btn-outline" aria-label="Cambiar tema" style="padding: 6px; display: flex; align-items: center; justify-content: center; border-radius: 50%; width: 34px; height: 34px; flex-shrink: 0; background: var(--bg-card);">
+        <!-- Sol (icono de luz, se muestra en tema oscuro) -->
+        <svg id="theme-toggle-light-icon" style="display: none; width: 18px; height: 18px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        <!-- Luna (icono de oscuridad, se muestra en tema claro) -->
+        <svg id="theme-toggle-dark-icon" style="display: none; width: 18px; height: 18px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      </button>
+    </div>
+  </div>
+  <div class="content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-list">
+          {% for cat, msg in messages %}
+            <div class="flash flash-{{ cat }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<!-- CONTENEDOR DE NOTIFICACIONES TOAST (Los mensajitos flotantes) -->
+<div id="toast-container"></div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+/* ── Sistema de Notificaciones Flotantes (Toasts) ──────────────
+   Muestra avisos bonitos en la esquina superior derecha que se 
+   cierran solos o dándoles clic en la 'x'. */
+function showToast(title, msg, type = 'info', duration = 5000) {
+  const container = document.getElementById('toast-container');
+
+  const icons = {
+    success: '✅',
+    error:   '❌',
+    warn:    '⚠️',
+    info:    '✉️'
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.style.setProperty('--duration', duration + 'ms');
+  toast.innerHTML = `
+    <div class="toast-icon">${icons[type] || 'ℹ️'}</div>
+    <div class="toast-body">
+      <div class="toast-title">${title}</div>
+      ${msg ? `<div class="toast-msg">${msg}</div>` : ''}
+    </div>
+    <button class="toast-close" onclick="dismissToast(this.parentElement)">×</button>
+    <div class="toast-progress"></div>
+  `;
+
+  container.appendChild(toast);
+
+  const timer = setTimeout(() => dismissToast(toast), duration);
+  toast.addEventListener('click', () => { clearTimeout(timer); dismissToast(toast); });
+}
+
+function dismissToast(toast) {
+  if (!toast || toast.classList.contains('toast-exit')) return;
+  toast.classList.add('toast-exit');
+  setTimeout(() => toast.remove(), 300);
+}
+</script>
+</body>
+</html>

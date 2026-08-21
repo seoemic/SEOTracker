@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ accion }} Usuario — SEOTracker{% endblock %}
+{% block page_title %}{{ accion }} Usuario{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('usuarios') }}" class="btn btn-outline btn-sm">← Volver</a>
+{% endblock %}
+
+{% block content %}
+<div class="form-card" style="max-width:480px;">
+  <form method="POST">
+    <div class="form-grid" style="grid-template-columns:1fr;">
+
+      <div class="form-group">
+        <label for="username">Nombre de usuario *</label>
+        <input type="text" id="username" name="username"
+               value="{{ usuario.username if usuario else '' }}"
+               required placeholder="nombre_usuario" autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <label for="email">Correo electrónico *</label>
+        <input type="email" id="email" name="email"
+               value="{{ usuario.email if usuario else '' }}"
+               required placeholder="correo@empresa.com">
+      </div>
+
+      {% if usuario %}
+      <div class="form-group">
+        <label for="password">
+          Contraseña (dejar vacío para no cambiar)
+        </label>
+        <input type="password" id="password" name="password"
+               placeholder="••••••••" autocomplete="new-password">
+      </div>
+      {% else %}
+      <div class="form-group">
+        <label>Contraseña</label>
+        <p class="text-sm" style="color:var(--text-secondary); margin-top:4px; font-size:0.875rem;">
+          Se generará automáticamente y se enviará por correo electrónico al usuario.
+        </p>
+      </div>
+      {% endif %}
+
+      <div class="form-group">
+        <label for="rol">Rol *</label>
+        <select id="rol" name="rol">
+          <option value="lider" {% if usuario and usuario.rol == 'lider' %}selected{% endif %}>
+            Líder — Acceso total y creación de usuarios
+          </option>
+          <option value="pm" {% if usuario and usuario.rol == 'pm' %}selected{% endif %}>
+            PM — Rastreo modo lista, ver/crear células
+          </option>
+          <option value="gestor_cuenta" {% if usuario and usuario.rol == 'gestor_cuenta' %}selected{% endif %}>
+            Gestor de Cuenta — Rastreo modo lista, ver sus células
+          </option>
+          <option value="implementador" {% if usuario and usuario.rol == 'implementador' %}selected{% endif %}>
+            Implementador — Auditoría en vivo y rastreo modo lista
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="rol_empresa">Rol en Empresa / Organización</label>
+        <input type="text" id="rol_empresa" name="rol_empresa"
+               value="{{ usuario.rol_empresa if usuario else '' }}"
+               placeholder="Ej: Cliente, Analista, Agencia...">
+      </div>
+
+      {% if usuario %}
+      <div class="form-group">
+        <label class="form-check">
+          <input type="checkbox" name="activo" {% if usuario.activo %}checked{% endif %}>
+          Usuario activo (puede iniciar sesión)
+        </label>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:24px;justify-content:flex-end;">
+      <a href="{{ url_for('usuarios') }}" class="btn btn-outline">Cancelar</a>
+      <button type="submit" class="btn btn-primary">{{ accion }} Usuario</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

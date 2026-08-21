@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ accion }} Marca — SEOTracker{% endblock %}
+{% block page_title %}{{ accion }} Marca{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('marcas') }}" class="btn btn-outline btn-sm">← Volver</a>
+{% endblock %}
+
+{% block content %}
+<div class="form-card">
+  <form method="POST">
+    <div class="form-grid">
+
+      <!-- Información general -->
+      <div class="form-group">
+        <label for="marca">Nombre de Marca *</label>
+        <input type="text" id="marca" name="marca" value="{{ marca.marca if marca else '' }}" required placeholder="Ej: Arturo Calle">
+      </div>
+
+      <div class="form-group">
+        <label for="celula_id">Célula *</label>
+        <select id="celula_id" name="celula_id" required>
+          <option value="">Seleccione una célula...</option>
+          {% for c in celulas %}
+          <option value="{{ c.id }}" {% if marca and marca.celula_id == c.id %}selected{% endif %}>{{ c.nombre }}</option>
+          {% endfor %}
+        </select>
+        {% if not celulas %}
+        <small style="color:var(--danger);display:block;margin-top:4px;">No hay células creadas. <a href="{{ url_for('celula_nueva') }}">Crea una primero</a>.</small>
+        {% endif %}
+      </div>
+
+      <div class="form-group">
+        <label for="pais">País *</label>
+        <input type="text" id="pais" name="pais" value="{{ marca.pais if marca else '' }}" required placeholder="Ej: Colombia">
+      </div>
+
+      <div class="form-group">
+        <label for="entorno">CMS / Entorno *</label>
+        <select id="entorno" name="entorno">
+          {% for opt in ['VTEX', 'Shopify', 'Magento', 'WordPress'] %}
+          <option value="{{ opt }}" {% if marca and marca.entorno == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group full">
+        <label for="link_marca">Link del sitio web *</label>
+        <input type="url" id="link_marca" name="link_marca" value="{{ marca.link_marca if marca else '' }}" required placeholder="https://www.ejemplo.com">
+      </div>
+
+      <div class="form-group full">
+        <label for="doc_contenido">URL del documento de contenido (Google Sheets) *</label>
+        <input type="url" id="doc_contenido" name="doc_contenido" value="{{ marca.doc_contenido if marca else '' }}" required placeholder="https://docs.google.com/spreadsheets/d/...">
+      </div>
+
+      <div class="form-group full" style="background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px;">
+        <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+          <strong>Nota:</strong> Los correos de notificación (Implementador, Gerente y PM) se toman automáticamente de la <strong>Célula</strong> seleccionada arriba.
+        </p>
+      </div>
+
+      <div class="form-group full">
+        <label for="palabra_excluir">Palabra a excluir del Meta Título (opcional)</label>
+        <input type="text" id="palabra_excluir" name="palabra_excluir" value="{{ marca.palabra_excluir if marca else '' }}" placeholder="Ej: - Mi Marca">
+        <span class="hint">Esta palabra se eliminará del metatítulo del contenido antes de la comparación.</span>
+      </div>
+
+      <!-- Clases CSS -->
+      <div class="form-group full" style="margin-top:8px;">
+        <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+          Selectores CSS para el rastreo
+        </div>
+      </div>
+
+      <div class="form-group full">
+        <label for="clases_h1">Selectores CSS — H1</label>
+        <input type="text" id="clases_h1" name="clases_h1" value="{{ marca.clases_h1 if marca else '' }}" placeholder="h1, .titulo-principal, #main-title">
+        <span class="hint">Separar por coma. El sistema probará cada uno en orden hasta encontrar contenido.</span>
+      </div>
+
+      <div class="form-group full">
+        <label for="clases_desc_corta">Selectores CSS — Descripción Corta</label>
+        <textarea id="clases_desc_corta" name="clases_desc_corta" placeholder=".product-short-description, .descripcion-corta">{{ marca.clases_desc_corta if marca else '' }}</textarea>
+        <span class="hint">Separar por coma. Múltiples plantillas soportadas.</span>
+      </div>
+
+      <div class="form-group full">
+        <label for="clases_desc_larga">Selectores CSS — Descripción Larga</label>
+        <textarea id="clases_desc_larga" name="clases_desc_larga" placeholder=".product-description, .contenido-principal, #descripcion-larga">{{ marca.clases_desc_larga if marca else '' }}</textarea>
+        <span class="hint">Separar por coma. Múltiples plantillas soportadas.</span>
+      </div>
+
+      <div class="form-group full">
+        <label class="form-check">
+          <input type="checkbox" name="responsive" {% if not marca or marca.responsive %}checked{% endif %}>
+          El sitio web es responsive (mobile-first)
+        </label>
+      </div>
+
+      <!-- Cabeceras Personalizadas (Shopify / Acceso de Rastreadores / WAF) -->
+      <div class="form-group full" style="margin-top:16px;">
+        <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+          Cabeceras HTTP Personalizadas (Acceso de Rastreadores / Shopify / WAF)
+        </div>
+      </div>
+
+      <div class="form-group full">
+        <label for="headers_personalizados">Cabeceras HTTP de Rastreador (opcional)</label>
+        <textarea id="headers_personalizados" name="headers_personalizados" rows="4" style="font-family: monospace; font-size: 12px;" placeholder="Signature: sig1=:KoyUQDiJ...:&#10;Signature-Input: sig1=(&quot;@authority&quot;...&#10;Signature-Agent: &quot;https://shopify.com&quot;">{{ marca.headers_personalizados if marca and marca.headers_personalizados else '' }}</textarea>
+        <span class="hint">Pega aquí las cabeceras generadas en Shopify (Acceso de rastreador) o cabeceras personalizadas en formato <code>Nombre: Valor</code> (una por línea) o en formato JSON.</span>
+      </div>
+
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:24px;justify-content:flex-end;">
+      <a href="{{ url_for('marcas') }}" class="btn btn-outline">Cancelar</a>
+      <button type="submit" class="btn btn-primary">{{ accion }} Marca</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

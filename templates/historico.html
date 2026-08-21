@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Histórico — {{ marca.marca }}{% endblock %}
+{% block page_title %}Histórico: {{ marca.marca }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-sm">← Dashboard</a>
+{% endblock %}
+
+{% block content %}
+<div class="timeline">
+{% for h in historico %}
+<div class="tl-item">
+  <div class="tl-dot"></div>
+  <div class="tl-body">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div>
+        <strong>Revisión {{ h.numero_revision }}</strong>
+        <span class="tl-date" style="margin-left:10px;">
+          {% if h.fecha_ejecucion.strftime %}{{ h.fecha_ejecucion.strftime('%d/%m/%Y %H:%M') }}{% else %}{{ h.fecha_ejecucion }}{% endif %}
+        </span>
+      </div>
+      
+      <div style="display:flex; gap:8px;">
+        {% if h.es_agrupado %}
+          {% if h.mobile and h.mobile.ruta_reporte_excel %}
+            <a href="{{ url_for('descargar', filename=h.mobile.ruta_reporte_excel) }}" class="btn btn-outline btn-sm">
+              ⬇ Descargar Mobile
+            </a>
+          {% endif %}
+          {% if h.desktop and h.desktop.ruta_reporte_excel %}
+            <a href="{{ url_for('descargar', filename=h.desktop.ruta_reporte_excel) }}" class="btn btn-outline btn-sm">
+              ⬇ Descargar Desktop
+            </a>
+          {% endif %}
+        {% else %}
+          <a href="{{ url_for('descargar', filename=h.ruta_reporte_excel) }}" class="btn btn-outline btn-sm">
+            ⬇ Descargar Excel
+          </a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="tl-stats">
+      {% if h.es_agrupado %}
+        {% if h.mobile %}
+          <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #2a2a3a;">
+            <strong style="color:#e74c3c; width: 65px; display: inline-block;">Mobile:</strong>
+            <span class="tl-stat">{{ h.mobile.urls_procesadas }} URLs</span>
+            <span class="tl-stat" style="color:var(--warn);">{{ h.mobile.urls_redireccion }} redirecciones</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.mobile.urls_no_creadas }} no creadas</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.mobile.urls_meta_titulo }} meta título</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.mobile.urls_meta_descripcion }} meta desc.</span>
+            <span class="tl-stat" style="color:var(--warn);">{{ h.mobile.urls_h1 }} H1</span>
+            <span class="tl-stat" style="color:var(--warn);">{{ h.mobile.urls_desc_corta }} desc. corta</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.mobile.urls_desc_larga }} desc. larga</span>
+          </div>
+        {% endif %}
+        {% if h.desktop %}
+          <div>
+            <strong style="color:#3498db; width: 65px; display: inline-block;">Desktop:</strong>
+            <span class="tl-stat">{{ h.desktop.urls_procesadas }} URLs</span>
+            <span class="tl-stat" style="color:var(--warn);">{{ h.desktop.urls_redireccion }} redirecciones</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.desktop.urls_no_creadas }} no creadas</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.desktop.urls_meta_titulo }} meta título</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.desktop.urls_meta_descripcion }} meta desc.</span>
+            <span class="tl-stat" style="color:var(--warn);">{{ h.desktop.urls_h1 }} H1</span>
+            <span class="tl-stat" style="color:var(--warn);">{{ h.desktop.urls_desc_corta }} desc. corta</span>
+            <span class="tl-stat" style="color:var(--danger);">{{ h.desktop.urls_desc_larga }} desc. larga</span>
+          </div>
+        {% endif %}
+      {% else %}
+        <span class="tl-stat">{{ h.urls_procesadas }} URLs procesadas</span>
+        <span class="tl-stat" style="color:var(--warn);">{{ h.urls_redireccion }} redirecciones</span>
+        <span class="tl-stat" style="color:var(--danger);">{{ h.urls_no_creadas }} no creadas</span>
+        <span class="tl-stat" style="color:var(--danger);">{{ h.urls_meta_titulo }} meta título</span>
+        <span class="tl-stat" style="color:var(--danger);">{{ h.urls_meta_descripcion }} meta desc.</span>
+        <span class="tl-stat" style="color:var(--warn);">{{ h.urls_h1 }} H1</span>
+        <span class="tl-stat" style="color:var(--warn);">{{ h.urls_desc_corta }} desc. corta</span>
+        <span class="tl-stat" style="color:var(--danger);">{{ h.urls_desc_larga }} desc. larga</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+<p style="color:var(--text-muted);padding:20px;">Sin auditorías registradas para esta marca.</p>
+{% endfor %}
+</div>
+{% endblock %}

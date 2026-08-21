@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Células — SEOTracker{% endblock %}
+{% block page_title %}Gestión de Células{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('celula_nueva') }}" class="btn btn-primary btn-sm">+ Nueva célula</a>
+{% endblock %}
+
+{% block content %}
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>Célula</th>
+        <th>Implementador</th>
+        <th>Gerente de Cuenta</th>
+        <th>PM</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in celulas %}
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="user-avatar" style="width:28px;height:28px;font-size:12px;background:var(--primary);color:white;">{{ c.nombre[0].upper() }}</div>
+            <strong>{{ c.nombre }}</strong>
+          </div>
+        </td>
+        <td style="color:var(--text-muted);font-size:13px;">{{ c.implementador_email }}</td>
+        <td style="color:var(--text-muted);font-size:13px;">{{ c.gerente_email }}</td>
+        <td style="color:var(--text-muted);font-size:13px;">{{ c.pm_email }}</td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            <a href="{{ url_for('celula_editar', celula_id=c.id) }}" class="btn btn-outline btn-sm">Editar</a>
+            <form method="POST" action="{{ url_for('celula_eliminar', celula_id=c.id) }}"
+                  onsubmit="return confirm('¿Eliminar célula {{ c.nombre }}?')">
+              <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not celulas %}
+      <tr>
+        <td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted);">
+          No hay células registradas. <a href="{{ url_for('celula_nueva') }}">Crea la primera</a>.
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
