@@ -665,7 +665,15 @@ def aplicar_formato_excel(path_excel):
         ws = wb.active
         headers = [c.value for c in ws[1]]
 
-        def idx(name): return headers.index(name) + 1 if name in headers else -1
+        def _norm_col(txt):
+            if txt is None: return ""
+            s = unicodedata.normalize('NFKD', str(txt)).encode('ASCII', 'ignore').decode('utf-8')
+            return re.sub(r'\s+', ' ', s).strip().lower()
+
+        headers_norm = [_norm_col(h) for h in headers]
+        def idx(name):
+            n = _norm_col(name)
+            return headers_norm.index(n) + 1 if n in headers_norm else -1
 
         rojo_fill = PatternFill(start_color='FFB6C1', end_color='FFB6C1', fill_type='solid')
         rojo_font = InlineFont(color='00FF0000')
@@ -676,11 +684,11 @@ def aplicar_formato_excel(path_excel):
         ] if idx(c) != -1]
 
         pares = [
-            (idx('Meta Titulo (Hoja de Contenido)'),      idx('Meta Titulo (Rastreo en Vivo)'),      idx('META_TITULO_COINCIDE')),
-            (idx('Meta Descripción (Hoja de Contenido)'),  idx('Meta Descripción (Rastreo en Vivo)'),  idx('META_DESCRIPCION_COINCIDE')),
-            (idx('H1 (Hoja de Contenido)'),                idx('H1 (Rastreo en Vivo)'),                idx('H1_COINCIDE')),
-            (idx('Descripción Corta (Hoja de Contenido)'), idx('Descripción Corta (Rastreo en Vivo)'), idx('DESCRIPCION_CORTA_COINCIDE')),
-            (idx('Descripción Larga (Hoja de Contenido)'), idx('Descripción Larga (Rastreo en Vivo)'), idx('DESCRIPCION_LARGA_COINCIDE')),
+            (idx('Meta Título (Hoja de Contenido)'),        idx('Meta Titulo (Rastreo en Vivo)'),        idx('META_TITULO_COINCIDE')),
+            (idx('Meta Descripción (Hoja de Contenido)'),   idx('Meta Descripción (Rastreo en Vivo)'),   idx('META_DESCRIPCION_COINCIDE')),
+            (idx('H1 (Hoja de Contenido)'),                 idx('H1 (Rastreo en Vivo)'),                 idx('H1_COINCIDE')),
+            (idx('Descripción Corta (Hoja de Contenido)'),  idx('Descripción Corta (Rastreo en Vivo)'),  idx('DESCRIPCION_CORTA_COINCIDE')),
+            (idx('Descripción Larga (Hoja de Contenido)'),  idx('Descripción Larga (Rastreo en Vivo)'),  idx('DESCRIPCION_LARGA_COINCIDE')),
         ]
 
         for row in range(2, ws.max_row + 1):
