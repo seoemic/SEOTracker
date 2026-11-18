@@ -24,7 +24,7 @@ pip install -r requirements.txt
 ## 4. Archivos de Configuración Críticos
 Para que el sistema pueda rastrear y enviar correos, el proyecto **debe incluir** estos archivos (pídelos al desarrollador si no los tienes):
 *   `credentials.json`: Las credenciales de la Service Account de Google Cloud para acceder a Google Sheets.
-*   **Variables de Entorno (Opcional):** El sistema usa por defecto `smtp.gmail.com`. Si se desea cambiar el emisor del correo, debe editarse en `app.py` o configurarse como variables de entorno (`SMTP_EMAIL`, `SMTP_PASS`).
+*   **Variables de Entorno (Opcional):** El sistema usa por defecto `smtp.gmail.com`. Si se desea cambiar el emisor del correo, debe editarse en `app.py` , configurarse como variables de entorno (`SMTP_EMAIL`, `SMTP_PASS`) o desde el panel de configuracion de la aplicacion.
 
 ## 5. Ejecución
 Para iniciar el servidor web:

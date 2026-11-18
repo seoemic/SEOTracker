@@ -7,7 +7,7 @@
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <style>
-/* ── Select2: tema oscuro ───────────────────────── */
+/*  Select2: tema oscuro */
 .select2-container--default .select2-selection--single {
     background-color: var(--bg-surface);
     border: 1px solid var(--border);
@@ -39,7 +39,7 @@
     border-radius: 5px;
     padding: 6px 10px;
 }
-/* ── Detector badge ────────────────────────────── */
+/*  Detector badge  */
 #marca-detectada-badge {
     display: none;
     margin-top: 8px;
@@ -52,7 +52,7 @@
     align-items: center;
     gap: 8px;
 }
-/* ── Tabla de resultados ───────────────────────── */
+/*  Tabla de resultados  */
 .results-table th {
     background: var(--bg-surface);
     color: var(--text-muted);
@@ -83,7 +83,7 @@
     white-space: nowrap;
 }
 .url-link:hover { text-decoration: underline; }
-/* ── Status area ───────────────────────────────── */
+/* Status area  */
 #status-area {
     margin-top: 30px;
     padding: 20px;
@@ -91,7 +91,7 @@
     border-radius: 10px;
     border-left: 4px solid var(--accent);
 }
-/* ── Tabs no-responsive ────────────────────────── */
+/* Tabs no-responsive  */
 .mode-tabs {
     display: flex;
     gap: 8px;
@@ -118,7 +118,7 @@
     background: var(--bg-surface);
 }
 .mode-tab:hover:not(.active) { color: var(--text); background: var(--bg-surface); }
-/* ── Modal ─────────────────────────────────────── */
+/*  Modal */
 .modal-box {
     background: var(--bg-card);
     border-radius: 14px;
@@ -144,7 +144,7 @@
 }
 .modal-correo-item:hover { background: var(--bg-surface); }
 .modal-correo-item.selected { border-color: rgba(37,99,235,.35); background: #eff6ff; }
-/* ── Pulsing status ────────────────────────────── */
+/*  Pulsing status */
 .pulse-dot {
     width: 10px; height: 10px;
     border-radius: 50%;
@@ -335,9 +335,9 @@
 </div>
 
 <script>
-// ══════════════════════════════════════════════════════════════════
+
 // HELPERS
-// ══════════════════════════════════════════════════════════════════
+
 const LS_KEY = 'rastreo_job_activo';
 
 function coincIcon(val) {
@@ -392,9 +392,9 @@ function setStatus(msg, pct, detail) {
     if (detail !== undefined) document.getElementById('prog-detail').innerText = detail;
 }
 
-// ══════════════════════════════════════════════════════════════════
+
 // TABS (para modo no-responsive)
-// ══════════════════════════════════════════════════════════════════
+
 function switchTab(mode) {
     const showMobile  = mode === 'mobile'  || mode === 'both';
     const showDesktop = mode === 'desktop' || mode === 'both';
@@ -405,9 +405,9 @@ function switchTab(mode) {
     document.getElementById('tab-both').classList.toggle('active',   mode === 'both');
 }
 
-// ══════════════════════════════════════════════════════════════════
+
 // MOSTRAR RESULTADOS
-// ══════════════════════════════════════════════════════════════════
+
 function mostrarResultados(data) {
     document.getElementById('status-area').style.display = 'none';
     document.getElementById('prog-bar').style.width = '100%';
@@ -440,9 +440,9 @@ function mostrarResultados(data) {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════
+
 // POLLING
-// ══════════════════════════════════════════════════════════════════
+
 let _pollInterval   = null;
 let _progressInterval = null;
 
@@ -518,9 +518,9 @@ function resetBtnIniciar() {
     document.getElementById('btn-spinner').style.display = 'none';
 }
 
-// ══════════════════════════════════════════════════════════════════
+
 // RECUPERAR JOB AL CARGAR LA PÁGINA
-// ══════════════════════════════════════════════════════════════════
+
 window.addEventListener('DOMContentLoaded', () => {
     const saved = localStorage.getItem(LS_KEY);
     if (!saved) return;
@@ -556,9 +556,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// ══════════════════════════════════════════════════════════════════
+
 // AUTO-DETECCIÓN DE MARCA POR DOMINIO
-// ══════════════════════════════════════════════════════════════════
 let detectTimeout = null;
 document.getElementById('urls').addEventListener('input', function() {
     clearTimeout(detectTimeout);
@@ -582,9 +581,8 @@ document.getElementById('urls').addEventListener('input', function() {
     }, 600);
 });
 
-// ══════════════════════════════════════════════════════════════════
 // ENVÍO DEL FORMULARIO
-// ══════════════════════════════════════════════════════════════════
+
 document.getElementById('rastreo-form').addEventListener('submit', async function(e) {
     e.preventDefault();
 
@@ -639,9 +637,8 @@ document.getElementById('rastreo-form').addEventListener('submit', async functio
     }
 });
 
-// ══════════════════════════════════════════════════════════════════
 // MODAL DE CORREO
-// ══════════════════════════════════════════════════════════════════
+
 function abrirModalCorreo() {
     if (!window.lastRastreoData) { showToast('Sin rastreo', 'Primero ejecuta un rastreo.', 'warn'); return; }
     const marcaId = document.getElementById('marca_id').value;

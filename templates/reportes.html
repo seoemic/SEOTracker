@@ -15,7 +15,7 @@
 
 {% block content %}
 
-<!-- ─── TARJETAS DE MÉTRICAS (KPIs) ────────────────────────────────
+<!-- ─── TARJETAS DE MÉTRICAS (KPIs)
      Muestran los números más importantes de la aplicación de un vistazo. -->
 <div class="kpi-grid">
   <div class="kpi-card">
@@ -40,7 +40,7 @@
   </div>
 </div>
 
-<!-- ─── PRIMERA FILA DE GRÁFICAS ─────────────────────────────────
+<!-- ─── PRIMERA FILA DE GRÁFICAS 
      Izquierda: Barras con el total de auditorías por marca.
      Derecha: Dona mostrando de qué tipo son los errores que hemos encontrado. -->
 <div class="charts-grid">
@@ -73,7 +73,7 @@
 
 </div>
 
-<!-- ─── SEGUNDA FILA: EVOLUCIÓN EN EL TIEMPO ─────────────────────
+<!-- SEGUNDA FILA: EVOLUCIÓN EN EL TIEMPO 
      Gráfico de líneas que muestra si los errores de una marca suben o bajan
      con el paso de las revisiones. Incluye un filtro para seleccionar la marca. -->
 <div class="charts-grid single">
@@ -99,7 +99,7 @@
   </div>
 </div>
 
-<!-- ─── TERCERA FILA: ERRORES ACUMULADOS ─────────────────────────
+<!-- TERCERA FILA: ERRORES ACUMULADOS 
      Barras apiladas que nos dicen qué marca tiene más errores en total. -->
 <div class="charts-grid single">
   <div class="chart-card full">
@@ -115,7 +115,7 @@
   </div>
 </div>
 
-<!-- ─── TABLA RESUMEN DE MARCAS ────────────────────────────────────
+<!-- TABLA RESUMEN DE MARCAS 
      Listado de todas las marcas con sus métricas más recientes y su estado actual. -->
 <div class="report-table-wrap">
   <div style="padding:16px 20px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
@@ -192,10 +192,10 @@
   </table>
 </div>
 
-<!-- ─── CONFIGURACIÓN DE GRÁFICAS (Chart.js) ─────────────────────
+<!-- ─── CONFIGURACIÓN DE GRÁFICAS (Chart.js) 
      Aquí cargamos los datos que nos mandó Flask y dibujamos los gráficos. -->
 <script>
-// ── Colores corporativos para las gráficas ───────────────────────
+// ── Colores corporativos para las gráficas 
 const PALETTE = [
   '#4fc3f7','#2ecc71','#e74c3c','#f39c12','#9b59b6',
   '#1abc9c','#e67e22','#3498db','#e91e63','#00bcd4'
@@ -211,11 +211,11 @@ const CHART_DEFAULTS = {
 Chart.defaults.color = '#e0e0e0';
 Chart.defaults.borderColor = '#252540';
 
-// ── Datos inyectados desde el servidor (Flask a JS) ──────────────
+// ── Datos inyectados desde el servidor (Flask a JS)
 const resumenMarcas = {{ resumen_marcas | tojson }};
 const distribucion  = {{ distribucion | tojson }};
 
-// ── 1. Gráfica de barras: Auditorías por marca ───────────────────
+// ── 1. Gráfica de barras: Auditorías por marca
 (function() {
   const labels  = resumenMarcas.map(m => m.marca);
   const values  = resumenMarcas.map(m => m.total_auditorias);
@@ -249,7 +249,7 @@ const distribucion  = {{ distribucion | tojson }};
   });
 })();
 
-// ── 2. Gráfica de dona: Proporción de cada tipo de error ─────────
+// ── 2. Gráfica de dona: Proporción de cada tipo de error 
 (function() {
   if (!distribucion) return;
   const values = [

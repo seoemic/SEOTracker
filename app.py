@@ -403,9 +403,9 @@ def descargar(filename):
         abort(404)
     return send_file(path, as_attachment=True)
 
-# =====================================================================
+
 # RASTREO POR LISTA — El usuario pega URLs manualmente y las auditamos
-# =====================================================================
+
 @app.route('/rastreo_lista', methods=['GET', 'POST'])
 @login_required
 def rastreo_lista():
@@ -511,9 +511,9 @@ def rastreo_lista_enviar_correo():
     else:
         return jsonify({'ok': False, 'error': 'Hubo un problema al enviar el correo.'})
 
-# =====================================================================
+
 # MARCAS — Alta, edición, eliminación y listado de marcas
-# =====================================================================
+
 @app.route('/marcas')
 @login_required
 def marcas():
@@ -623,9 +623,9 @@ def auditar_manual(marca_id):
 
     return render_template('rastreo_lista.html', marca=m)
 
-# =====================================================================
+
 # CÉLULAS — Cada célula agrupa un implementador, gerente y PM
-# =====================================================================
+
 @app.route('/celulas')
 @login_required
 def celulas():
@@ -726,9 +726,9 @@ def marca_eliminar(marca_id):
         flash(f'Error: {e}', 'error')
     return redirect(url_for('marcas'))
 
-# =====================================================================
+
 # USUARIOS — Solo los líderes pueden gestionar cuentas de usuario
-# =====================================================================
+
 @app.route('/usuarios')
 @login_required
 @lider_required
@@ -814,9 +814,8 @@ def usuario_eliminar(uid):
         flash(f'Error: {e}', 'error')
     return redirect(url_for('usuarios'))
 
-# =====================================================================
 # CONFIGURACIÓN GLOBAL — Correos de líderes y credenciales SMTP
-# =====================================================================
+
 @app.route('/configuracion', methods=['GET', 'POST'])
 @login_required
 @lider_required
@@ -857,9 +856,8 @@ def configuracion():
         
     return render_template('config.html', config=conf)
 
-# =====================================================================
 # REPORTES — Dashboard analítico con KPIs, gráficas y tabla resumen
-# =====================================================================
+
 @app.route('/reportes')
 @login_required
 def reportes():
@@ -1001,9 +999,9 @@ def reportes_api_datos():
         return jsonify({'ok': False, 'error': str(e)})
 
 
-# =====================================================================
+
 # ARRANQUE — Migraciones automáticas de BD y lanzamiento del servidor
-# =====================================================================
+
 if __name__ == '__main__':
     # Al arrancar, verificamos si la BD necesita columnas nuevas y las agregamos
     try:

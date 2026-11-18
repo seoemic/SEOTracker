@@ -1,11 +1,7 @@
 """
-auditor.py — El cerebro de SEOTracker.
-
-Este módulo se encarga de todo lo pesado: descargar documentos de Google Sheets,
-rastrear URLs en vivo, comparar los contenidos, generar los reportes Excel,
-enviar correos con los resultados, y programar las auditorías automáticas.
+auditor.py — rastreo, comparación y reportes de SEOTracker.
 """
-import pandas as pd
+# --- stdlib ---
 import re
 import os
 import difflib
@@ -15,6 +11,11 @@ import random
 import unicodedata
 import smtplib
 import threading
+import json
+from collections import defaultdict
+
+# --- third-party ---
+import pandas as pd
 import schedule
 import mysql.connector
 import requests
@@ -30,9 +31,7 @@ from openpyxl.cell.text import InlineFont
 from openpyxl.styles import PatternFill, Font
 from oauth2client.service_account import ServiceAccountCredentials
 
-# ─────────────────────────────────────────────────────────
-# CONFIGURACIÓN (se sobreescribe desde app.py)
-# ─────────────────────────────────────────────────────────
+# --- config (se sobreescribe desde app.py) ---
 DB_CONFIG = {
     'host': '127.0.0.1',
     'user': 'root',
@@ -48,22 +47,22 @@ SMTP_CONFIG = {
 }
 
 PATH_CREDENTIALS_SHEETS = 'credentials.json'
-MESES_ES = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
-             7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'}
+MESES_ES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+}
 
-# =====================================================================
-# FUNCIONES DE LIMPIEZA DE TEXTO
-# Normalizan y limpian el HTML que viene de los Sheets y del rastreo en vivo.
-# =====================================================================
+# --- limpieza de texto ---
 
 def limpiar_html(texto):
     if pd.isna(texto) or str(texto).strip().lower() in ('nan', ''):
         return 'Vacío'
     if isinstance(texto, str):
-        # Normalizar unicode primero (NFC vs NFD, \xa0, etc)
+        # normalizar unicode primero (NFC vs NFD, \xa0, etc)
         texto = unicodedata.normalize('NFKC', texto)
         texto = texto.replace('\n', ' ').replace('\r', ' ').replace('\xa0', ' ')
-        # Eliminar caracteres invisibles que pueden causar falsas diferencias
+        # eliminar caracteres invisibles que pueden causar falsas diferencias
         for ch in ('\u200b', '\u200c', '\u200d', '\u00ad', '\ufeff', '\u2060', '\u202f', '\u2009', '\u2002', '\u2003'):
             texto = texto.replace(ch, '')
         soup = BeautifulSoup(texto, 'html.parser')
@@ -76,8 +75,9 @@ def limpiar_html(texto):
     clean = re.sub(r'\s+', ' ', clean).strip()
     return 'Vacío' if not clean or clean.lower() == 'nan' else clean
 
+
 def normalizar(serie):
-    # Caracteres invisibles que pueden causar falsas diferencias
+    # los mismos invisibles que en limpiar_html, con \u00a0 convertido a espacio
     _INVISIBLE = (
         '\u200b',  # zero-width space
         '\u200c',  # zero-width non-joiner
@@ -91,19 +91,22 @@ def normalizar(serie):
         '\u2002',  # en space
         '\u2003',  # em space
     )
+
     def _norm(x):
         if pd.isna(x): return ""
         s = unicodedata.normalize('NFKC', str(x))
         for ch in _INVISIBLE:
             s = s.replace(ch, ' ' if ch == '\u00a0' else '')
         return s
-    
+
     return serie.apply(_norm).str.replace(r'\s+', ' ', regex=True).str.strip().str.lower()
+
 
 def extraer_h2h3_html(soup):
     tags = soup.find_all(['h2', 'h3'])
     out = [f"[{t.name.upper()}] {t.get_text(strip=True)}" for t in tags if t.get_text(strip=True)]
     return " | ".join(out) if out else "Ninguno"
+
 
 def _normalizar_para_comparar(texto):
     """Quita acentos, pasa a minúsculas y colapsa espacios para comparar textos."""
@@ -111,6 +114,7 @@ def _normalizar_para_comparar(texto):
         return ""
     s = unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('utf-8')
     return re.sub(r'\s+', ' ', s).strip().lower()
+
 
 def detectar_h1_duplicado_en_desc_larga(h1_vivo, desc_larga_vivo, umbral=0.95):
     """
@@ -129,14 +133,14 @@ def detectar_h1_duplicado_en_desc_larga(h1_vivo, desc_larga_vivo, umbral=0.95):
     if not h1_norm:
         return ''
 
-    # Intentar parsear la desc larga como HTML para extraer H2s reales
+    # intentar parsear la desc larga como HTML para extraer H2s reales
     try:
         soup_dl = _BS(str(desc_larga_vivo), 'html.parser')
         h2_tags = [t.get_text(strip=True) for t in soup_dl.find_all('h2') if t.get_text(strip=True)]
     except Exception:
         h2_tags = []
 
-    # Si no encontró H2s con HTML, buscar patrones [H2] en texto plano (formato de CONTENIDO_SF_H2_H3)
+    # si no encontró H2s con HTML, buscar patrones [H2] en texto plano (formato de CONTENIDO_SF_H2_H3)
     if not h2_tags:
         for parte in str(desc_larga_vivo).split('|'):
             parte = parte.strip()
@@ -148,19 +152,18 @@ def detectar_h1_duplicado_en_desc_larga(h1_vivo, desc_larga_vivo, umbral=0.95):
         if not h2_norm:
             continue
         ratio = SequenceMatcher(None, h1_norm, h2_norm).ratio()
-        # También detectar cuando el H1 aparece como prefijo exacto dentro del H2
+        # también detectar cuando el H1 aparece como prefijo exacto dentro del H2
         h1_es_prefijo = h2_norm.startswith(h1_norm) and len(h1_norm) >= 10
         if ratio >= umbral or h1_es_prefijo:
             return 'H1 duplicado en descripción larga'
 
     return ''
 
-# =====================================================================
-# ACCESO A LA BASE DE DATOS
-# Funciones para obtener marcas, células, usuarios, históricos, etc.
-# =====================================================================
+
+# --- db helpers ---
 
 _COLUMNS_CHECKED = False
+
 
 def get_conn():
     global _COLUMNS_CHECKED
@@ -172,12 +175,12 @@ def get_conn():
             if not cur.fetchone():
                 cur.execute("ALTER TABLE marcas ADD COLUMN headers_personalizados TEXT DEFAULT NULL")
                 cnx.commit()
-                
+
             cur.execute("SHOW COLUMNS FROM marcas LIKE 'fecha_headers'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE marcas ADD COLUMN fecha_headers DATETIME DEFAULT NULL")
                 cnx.commit()
-                # Inicializar headers existentes (Opción 1: reiniciar el contador a la fecha actual si ya tenían headers)
+                # inicializar headers existentes a la fecha actual para no disparar alertas de inmediato
                 cur.execute("UPDATE marcas SET fecha_headers = CURRENT_TIMESTAMP WHERE headers_personalizados IS NOT NULL AND headers_personalizados != '' AND fecha_headers IS NULL")
                 cnx.commit()
 
@@ -185,17 +188,18 @@ def get_conn():
             if not cur.fetchone():
                 cur.execute("ALTER TABLE marcas ADD COLUMN alerta_headers_enviada BOOLEAN DEFAULT FALSE")
                 cnx.commit()
-                
+
             cur.execute("SHOW COLUMNS FROM usuarios LIKE 'rol_empresa'")
             if not cur.fetchone():
                 cur.execute("ALTER TABLE usuarios ADD COLUMN rol_empresa VARCHAR(100) DEFAULT NULL")
                 cnx.commit()
-                
+
             cur.close()
             _COLUMNS_CHECKED = True
         except Exception as e:
             print(f"Error verificando nuevas columnas: {e}")
     return cnx
+
 
 def obtener_marcas(email_filtro=None):
     cnx = get_conn()
@@ -209,11 +213,11 @@ def obtener_marcas(email_filtro=None):
     if email_filtro:
         query += " WHERE %s IN (c.implementador_email, c.gerente_email, c.pm_email)"
         params = (email_filtro,)
-        
     cur.execute(query, params)
     rows = cur.fetchall()
     cur.close(); cnx.close()
     return rows
+
 
 def obtener_marca(marca_id):
     cnx = get_conn()
@@ -228,6 +232,7 @@ def obtener_marca(marca_id):
     cur.close(); cnx.close()
     return row
 
+
 def obtener_celulas():
     cnx = get_conn()
     cur = cnx.cursor(dictionary=True)
@@ -235,6 +240,7 @@ def obtener_celulas():
     rows = cur.fetchall()
     cur.close(); cnx.close()
     return rows
+
 
 def obtener_celula(celula_id):
     cnx = get_conn()
@@ -244,6 +250,7 @@ def obtener_celula(celula_id):
     cur.close(); cnx.close()
     return row
 
+
 def obtener_usuarios_por_rol(rol):
     cnx = get_conn()
     cur = cnx.cursor(dictionary=True)
@@ -251,6 +258,7 @@ def obtener_usuarios_por_rol(rol):
     rows = cur.fetchall()
     cur.close(); cnx.close()
     return rows
+
 
 def obtener_configuracion():
     cnx = get_conn()
@@ -264,6 +272,7 @@ def obtener_configuracion():
         cur.close(); cnx.close()
         return {}
 
+
 def obtener_config_smtp():
     conf = obtener_configuracion()
     return {
@@ -272,6 +281,7 @@ def obtener_config_smtp():
         'servidor': SMTP_CONFIG['servidor'],
         'puerto': SMTP_CONFIG['puerto']
     }
+
 
 def obtener_ultimo_historico(marca_id):
     cnx = get_conn()
@@ -284,26 +294,28 @@ def obtener_ultimo_historico(marca_id):
     cur.close(); cnx.close()
     return row
 
+
 def obtener_ultimos_historicos_no_responsive(marca_id):
     cnx = get_conn()
     cur = cnx.cursor(dictionary=True)
-    
+
     cur.execute("""
         SELECT * FROM historico 
         WHERE marca_id = %s AND (ruta_reporte_excel LIKE '%Mobile%' OR ruta_reporte_excel LIKE '%mobile%')
         ORDER BY fecha_ejecucion DESC LIMIT 1
     """, (marca_id,))
     mobile = cur.fetchone()
-    
+
     cur.execute("""
         SELECT * FROM historico 
         WHERE marca_id = %s AND (ruta_reporte_excel LIKE '%Desktop%' OR ruta_reporte_excel LIKE '%desktop%')
         ORDER BY fecha_ejecucion DESC LIMIT 1
     """, (marca_id,))
     desktop = cur.fetchone()
-    
+
     cur.close(); cnx.close()
     return mobile, desktop
+
 
 def siguiente_revision(marca_id):
     cnx = get_conn()
@@ -312,15 +324,15 @@ def siguiente_revision(marca_id):
     row = cur.fetchone()
     cur.close(); cnx.close()
     if row:
-        errores = (row['urls_redireccion'] + row['urls_no_creadas'] + 
-                   row['urls_meta_titulo'] + row['urls_meta_descripcion'] + 
+        errores = (row['urls_redireccion'] + row['urls_no_creadas'] +
+                   row['urls_meta_titulo'] + row['urls_meta_descripcion'] +
                    row['urls_h1'] + row['urls_desc_corta'] + row['urls_desc_larga'])
-        
         if errores > 0:
             return row['numero_revision'] + 1
         else:
-            return 1 
+            return 1
     return 1
+
 
 def guardar_historico(marca_id, stats, ruta_excel, num_rev=None, arreglados=0, cambiados=0):
     if num_rev is None:
@@ -341,6 +353,7 @@ def guardar_historico(marca_id, stats, ruta_excel, num_rev=None, arreglados=0, c
     cnx.commit(); cur.close(); cnx.close()
     return num_rev
 
+
 def calcular_cambios_contenido(path_prev, path_curr, errores_prev, errores_curr):
     arreglados = max(0, errores_prev - errores_curr)
     if not path_prev or not path_curr:
@@ -350,13 +363,13 @@ def calcular_cambios_contenido(path_prev, path_curr, errores_prev, errores_curr)
     try:
         df_prev = pd.read_excel(path_prev)
         df_curr = pd.read_excel(path_curr)
-        
+
         url_col_prev = 'URL' if 'URL' in df_prev.columns else ('Dirección' if 'Dirección' in df_prev.columns else None)
         url_col_curr = 'URL' if 'URL' in df_curr.columns else ('Dirección' if 'Dirección' in df_curr.columns else None)
-        
+
         if not url_col_prev or not url_col_curr:
             return arreglados, 0
-            
+
         live_cols = [
             'Meta Titulo (Rastreo en Vivo)',
             'Meta Descripción (Rastreo en Vivo)',
@@ -364,15 +377,15 @@ def calcular_cambios_contenido(path_prev, path_curr, errores_prev, errores_curr)
             'Descripción Corta (Rastreo en Vivo)',
             'Descripción Larga (Rastreo en Vivo)'
         ]
-        
+
         cols_prev = [url_col_prev] + [c for c in live_cols if c in df_prev.columns]
         cols_curr = [url_col_curr] + [c for c in live_cols if c in df_curr.columns]
-        
+
         df_p = df_prev[cols_prev].copy().rename(columns={url_col_prev: 'url_join'})
         df_c = df_curr[cols_curr].copy().rename(columns={url_col_curr: 'url_join'})
-        
+
         merged = pd.merge(df_p, df_c, on='url_join', suffixes=('_prev', '_curr'))
-        
+
         cambiados = 0
         for _, row in merged.iterrows():
             changed = False
@@ -387,11 +400,12 @@ def calcular_cambios_contenido(path_prev, path_curr, errores_prev, errores_curr)
                         break
             if changed:
                 cambiados += 1
-                
+
         return arreglados, cambiados
     except Exception as e:
         print(f"Error calculando cambios de contenido: {e}")
         return arreglados, 0
+
 
 def backfill_historico_cambios():
     try:
@@ -400,28 +414,30 @@ def backfill_historico_cambios():
         cur.execute("SELECT id, marca_id, ruta_reporte_excel, urls_redireccion, urls_no_creadas, urls_meta_titulo, urls_meta_descripcion, urls_h1, urls_desc_corta, urls_desc_larga FROM historico ORDER BY fecha_ejecucion ASC")
         rows = cur.fetchall()
         cur.close(); cnx.close()
-        
-        from collections import defaultdict
+
         marca_hist = defaultdict(list)
         for r in rows:
             marca_hist[r['marca_id']].append(r)
-            
+
         cnx = get_conn()
         cur = cnx.cursor()
         for marca_id, hist_list in marca_hist.items():
             for i in range(1, len(hist_list)):
                 curr = hist_list[i]
-                prev = hist_list[i-1]
-                
+                prev = hist_list[i - 1]
+
                 errores_prev = (prev['urls_redireccion'] + prev['urls_no_creadas'] +
                                 prev['urls_meta_titulo'] + prev['urls_meta_descripcion'] +
                                 prev['urls_h1'] + prev['urls_desc_corta'] + prev['urls_desc_larga'])
                 errores_curr = (curr['urls_redireccion'] + curr['urls_no_creadas'] +
                                 curr['urls_meta_titulo'] + curr['urls_meta_descripcion'] +
                                 curr['urls_h1'] + curr['urls_desc_corta'] + curr['urls_desc_larga'])
-                
-                arr, camb = calcular_cambios_contenido(prev['ruta_reporte_excel'], curr['ruta_reporte_excel'], errores_prev, errores_curr)
-                
+
+                arr, camb = calcular_cambios_contenido(
+                    prev['ruta_reporte_excel'], curr['ruta_reporte_excel'],
+                    errores_prev, errores_curr
+                )
+
                 cur.execute("""
                     UPDATE historico 
                     SET urls_contenido_arreglado = %s, urls_contenido_cambiado = %s 
@@ -433,6 +449,7 @@ def backfill_historico_cambios():
     except Exception as e:
         print(f"Error en backfill de históricos: {e}")
 
+
 def obtener_historico_marca(marca_id, limit=10):
     cnx = get_conn()
     cur = cnx.cursor(dictionary=True)
@@ -443,6 +460,7 @@ def obtener_historico_marca(marca_id, limit=10):
     rows = cur.fetchall()
     cur.close(); cnx.close()
     return rows
+
 
 def obtener_correos_disponibles(marca_id):
     correos = []
@@ -486,10 +504,8 @@ def obtener_correos_disponibles(marca_id):
 
     return correos
 
-# =====================================================================
-# CONEXIÓN CON GOOGLE SHEETS
-# Descarga la hoja de contenidos que el equipo mantiene actualizada.
-# =====================================================================
+
+# --- sheets ---
 
 def descargar_hoja_sheets(url_sheet, fila_encabezado=2):
     if not os.path.exists(PATH_CREDENTIALS_SHEETS):
@@ -519,6 +535,7 @@ def descargar_hoja_sheets(url_sheet, fila_encabezado=2):
         df = df.loc[:, ~df.columns.duplicated()].copy()
         df = df.replace('', pd.NA).dropna(how='all').fillna('')
 
+        # si hay columna "Reoptimización X", sus valores sobreescriben la columna X original
         for col in list(df.columns):
             col_str = str(col).strip()
             if col_str.lower().startswith('reoptimización ') or col_str.lower().startswith('reoptimizacion '):
@@ -534,10 +551,8 @@ def descargar_hoja_sheets(url_sheet, fila_encabezado=2):
         print(f"Error Sheets: {e}")
         return pd.DataFrame()
 
-# =====================================================================
-# MOTOR DE RASTREO WEB
-# Hace requests a las URLs para extraer sus contenidos SEO.
-# =====================================================================
+
+# --- rastreo ---
 
 _UA_POOL = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -547,6 +562,7 @@ _UA_POOL = [
 
 UA_MOBILE = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'
 UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+
 
 def get_by_selectors(soup, selector_str):
     if not selector_str:
@@ -562,13 +578,13 @@ def get_by_selectors(soup, selector_str):
             continue
     return ""
 
+
 def parse_headers_personalizados(headers_str):
     if not headers_str or not str(headers_str).strip():
         return {}
     headers_str = str(headers_str).strip()
     if headers_str.startswith('{') and headers_str.endswith('}'):
         try:
-            import json
             parsed = json.loads(headers_str)
             if isinstance(parsed, dict):
                 return {str(k).strip(): str(v).strip() for k, v in parsed.items()}
@@ -584,6 +600,7 @@ def parse_headers_personalizados(headers_str):
             out[key.strip()] = val.strip()
     return out
 
+
 def fetch_url(url, marca_db, user_agent=None, session=None):
     result = {
         'Dirección': url, 'Código de respuesta': None, 'Código_Final': None, 'Código_Original': None,
@@ -591,7 +608,7 @@ def fetch_url(url, marca_db, user_agent=None, session=None):
         'H1-1': "", 'Descripción corta 1': "", 'Descripción larga 1': "",
         'CONTENIDO_SF_H2_H3': "Ninguno", 'Status': 'Error', 'Error': None
     }
-    
+
     ua = user_agent if user_agent else random.choice(_UA_POOL)
     req_headers = {
         'User-Agent': ua,
@@ -605,7 +622,7 @@ def fetch_url(url, marca_db, user_agent=None, session=None):
         'Sec-Fetch-Site': 'none',
         'Upgrade-Insecure-Requests': '1'
     }
-    
+
     custom_headers = parse_headers_personalizados(marca_db.get('headers_personalizados', ''))
     if custom_headers:
         req_headers.update(custom_headers)
@@ -613,10 +630,10 @@ def fetch_url(url, marca_db, user_agent=None, session=None):
     http_client = session if session else requests
 
     try:
-        # Mayor pausa por URL de manera secuencial para evitar rate limits (429)
+        # pausa por URL para evitar rate limits (429)
         time.sleep(random.uniform(2.5, 4.5))
         resp = http_client.get(url, headers=req_headers, timeout=15)
-        
+
         def process_resp(r):
             final = r.status_code
             orig = r.history[0].status_code if r.history else final
@@ -631,7 +648,7 @@ def fetch_url(url, marca_db, user_agent=None, session=None):
         result['Código_Original'] = orig_st
         result['Código de respuesta'] = text_st
 
-        # Si el servidor responde 429, hacemos un único reintento final pero forzando requests limpio
+        # 429: un único reintento forzando requests limpio (sin session)
         if final_st == 429:
             time.sleep(5.0)
             resp = requests.get(url, headers=req_headers, timeout=15)
@@ -660,10 +677,8 @@ def fetch_url(url, marca_db, user_agent=None, session=None):
         result['Error'] = str(e)
         return result
 
-# =====================================================================
-# FORMATO DEL EXCEL
-# Coloreamos las celdas para resaltar los errores encontrados.
-# =====================================================================
+
+# --- formato excel ---
 
 def _rich_diff(texto_a, texto_b, rojo_font, lado='rastreo'):
     """
@@ -672,7 +687,7 @@ def _rich_diff(texto_a, texto_b, rojo_font, lado='rastreo'):
     lado='rastreo' → resalta lo que está en texto_b (Rastreo) pero no en texto_a (Doc)
     """
     try:
-        # Tokenizar conservando espacios para reconstruir el texto fielmente
+        # tokenizar conservando espacios para reconstruir el texto fielmente
         wa = re.split(r'(\s+)', str(texto_a))
         wb = re.split(r'(\s+)', str(texto_b))
         matcher = difflib.SequenceMatcher(None, wa, wb)
@@ -681,14 +696,14 @@ def _rich_diff(texto_a, texto_b, rojo_font, lado='rastreo'):
 
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if lado == 'doc':
-                # Recorremos los tokens del Doc (wa)
+                # recorremos los tokens del Doc (wa)
                 frag = ''.join(wa[i1:i2])
                 if not frag:
                     continue
                 if tag == 'equal':
                     partes.append(frag)
                 elif tag in ('replace', 'delete'):
-                    # En el Doc: lo que no está en el Rastreo → rojo
+                    # lo que no está en el Rastreo → rojo
                     partes.append(TextBlock(rojo_font, frag))
                     tiene_rojo = True
                 # 'insert' → token solo en el Rastreo, no aparece en el Doc → ignorar
@@ -700,7 +715,7 @@ def _rich_diff(texto_a, texto_b, rojo_font, lado='rastreo'):
                 if tag == 'equal':
                     partes.append(frag)
                 elif tag in ('replace', 'insert'):
-                    # En el Rastreo: lo que no coincide con el Doc → rojo
+                    # lo que no coincide con el Doc → rojo
                     partes.append(TextBlock(rojo_font, frag))
                     tiene_rojo = True
                 # 'delete' → token solo en el Doc, no aparece en el Rastreo → ignorar
@@ -708,6 +723,7 @@ def _rich_diff(texto_a, texto_b, rojo_font, lado='rastreo'):
         return CellRichText(*partes) if tiene_rojo and partes else None
     except Exception:
         return None
+
 
 def aplicar_formato_excel(path_excel):
     try:
@@ -721,6 +737,7 @@ def aplicar_formato_excel(path_excel):
             return re.sub(r'\s+', ' ', s).strip().lower()
 
         headers_norm = [_norm_col(h) for h in headers]
+
         def idx(name):
             n = _norm_col(name)
             return headers_norm.index(n) + 1 if n in headers_norm else -1
@@ -741,22 +758,21 @@ def aplicar_formato_excel(path_excel):
             (idx('Descripción Larga (Hoja de Contenido)'),  idx('Descripción Larga (Rastreo en Vivo)'),  idx('DESCRIPCION_LARGA_COINCIDE')),
         ]
 
-        # Columna de alerta H1 duplicado en desc. larga
         rojo_fuerte_fill = PatternFill(start_color='FF4444', end_color='FF4444', fill_type='solid')
         blanco_font      = Font(color='FFFFFFFF', bold=True)
         col_h1_dup = idx('H1 DUPLICADO EN DESC. LARGA')
 
         for row in range(2, ws.max_row + 1):
-            # Colorear fondo rojo en columnas COINCIDE que no dicen "Sí"
+            # fondo rojo en columnas COINCIDE que no dicen "Sí"
             for ci in cols_coincide:
                 celda = ws.cell(row=row, column=ci)
                 if str(celda.value).strip().lower() != 'sí':
                     celda.fill = rojo_fill
 
-            # Colorear rojo intenso la celda de H1 duplicado si tiene alerta
+            # rojo intenso en la celda de H1 duplicado si tiene texto
             if col_h1_dup != -1:
                 celda_dup = ws.cell(row=row, column=col_h1_dup)
-                if str(celda_dup.value).strip():  # tiene texto = hay alerta
+                if str(celda_dup.value).strip():
                     celda_dup.fill = rojo_fuerte_fill
                     celda_dup.font = blanco_font
 
@@ -764,15 +780,15 @@ def aplicar_formato_excel(path_excel):
                 if -1 in (cc, cr, cq):
                     continue
 
-                # Usar la columna COINCIDE como fuente de verdad
+                # la columna COINCIDE es la fuente de verdad
                 val_coincide = str(ws.cell(row=row, column=cq).value).strip().lower()
                 if val_coincide == 'sí':
-                    continue  # Coinciden — no tocar el texto
+                    continue
 
                 val_esperado = ws.cell(row=row, column=cc).value
                 val_rastreo  = ws.cell(row=row, column=cr).value
 
-                # Normalizar para el diff visual (eliminar caracteres invisibles)
+                # normalizar para el diff visual (eliminar caracteres invisibles)
                 def _n(v):
                     if v is None: return ""
                     s = unicodedata.normalize('NFKC', str(v))
@@ -786,14 +802,14 @@ def aplicar_formato_excel(path_excel):
                 n_rastreo  = _n(val_rastreo)
 
                 if n_esperado == n_rastreo:
-                    continue  # Coinciden tras normalizar
+                    continue
 
-                # ── Columna Doc: resaltar lo que falta (está en Doc pero no en Rastreo)
+                # columna Doc: resaltar lo que falta (está en Doc pero no en Rastreo)
                 rich_doc = _rich_diff(n_esperado, n_rastreo, rojo_font, lado='doc')
                 if rich_doc:
                     ws.cell(row=row, column=cc).value = rich_doc
 
-                # ── Columna Rastreo: resaltar lo que sobra/difiere (está en Rastreo pero no en Doc)
+                # columna Rastreo: resaltar lo que sobra/difiere
                 rich_ras = _rich_diff(n_esperado, n_rastreo, rojo_font, lado='rastreo')
                 if rich_ras:
                     ws.cell(row=row, column=cr).value = rich_ras
@@ -802,6 +818,8 @@ def aplicar_formato_excel(path_excel):
     except Exception as e:
         print(f"Error formato excel: {e}")
 
+
+# --- correos ---
 
 def enviar_correo_credenciales(destinatario, rol, password_plana):
     smtp_conf = obtener_config_smtp()
@@ -840,6 +858,7 @@ def enviar_correo_credenciales(destinatario, rol, password_plana):
         print(f"Error enviando credenciales a {destinatario}: {e}")
         return False
 
+
 def enviar_alerta_headers(marca_db):
     """
     Envía una alerta al implementador y al líder de implementación
@@ -847,19 +866,18 @@ def enviar_alerta_headers(marca_db):
     """
     conf = obtener_configuracion()
     smtp_conf = obtener_config_smtp()
-    
+
     destinatarios_set = set()
-    # Agregamos implementador (si existe) y líder de implementación
     if marca_db.get('implementador_email'):
         destinatarios_set.update([e.strip() for e in marca_db['implementador_email'].replace(';', ',').split(',') if e.strip()])
     if conf.get('lider_implementacion'):
         destinatarios_set.update([e.strip() for e in conf['lider_implementacion'].replace(';', ',').split(',') if e.strip()])
-        
+
     if not destinatarios_set:
         return False
-        
+
     destinatario_str = ", ".join(destinatarios_set)
-    
+
     msg = MIMEMultipart()
     msg['From'] = smtp_conf['email_emisor']
     msg['To'] = destinatario_str
@@ -892,10 +910,6 @@ def enviar_alerta_headers(marca_db):
         print(f"Error enviando alerta de headers para {marca_db['marca']}: {e}")
         return False
 
-# =====================================================================
-# ENVÍO DE CORREOS CON REPORTES DE AUDITORÍA
-# Armamos emails HTML bonitos con tablas comparativas y archivos adjuntos.
-# =====================================================================
 
 def _delta_icon(prev, actual):
     if prev is None:
@@ -910,6 +924,7 @@ def _delta_icon(prev, actual):
         return f"<span style='color:red'>{diff} ↓</span>"
     else:
         return f"<span style='color:gray'>0 ↔</span>"
+
 
 def enviar_correo(marca_db, path_excel, stats, historico_anterior, num_revision, fecha_str):
     conf = obtener_configuracion()
@@ -940,7 +955,7 @@ def enviar_correo(marca_db, path_excel, stats, historico_anterior, num_revision,
         msg['Subject'] = f"{fecha_str} - {marca_db.get('marca', '')} - Revisión {num_revision}"
 
         errores_totales = sum(stats.get(k, 0) for k in ['redireccion', 'no_creadas', 'meta_titulo', 'meta_descripcion', 'h1', 'desc_corta', 'desc_larga'])
-        
+
         ant = historico_anterior
         if ant:
             ant_fecha = ant['fecha_ejecucion'].strftime(f"%d de {MESES_ES[ant['fecha_ejecucion'].month]} {ant['fecha_ejecucion'].year}")
@@ -1061,6 +1076,7 @@ def enviar_correo(marca_db, path_excel, stats, historico_anterior, num_revision,
         print(f"❌ Error enviando correo a {destinatario_str}: {e}")
         return False
 
+
 def enviar_correo_no_responsive(marca_db, path_excel_mobile, path_excel_desktop, stats_mobile, stats_desktop, hist_ant_mobile, hist_ant_desktop, num_rev_mobile, num_rev_desktop, fecha_str):
     conf = obtener_configuracion()
     destinatarios_set = set()
@@ -1114,14 +1130,14 @@ def enviar_correo_no_responsive(marca_db, path_excel_mobile, path_excel_desktop,
                 </tr>"""
             return table_rows_html
 
-        rows_mobile_html = _armar_filas_tabla(stats_mobile, hist_ant_mobile)
+        rows_mobile_html  = _armar_filas_tabla(stats_mobile, hist_ant_mobile)
         rows_desktop_html = _armar_filas_tabla(stats_desktop, hist_ant_desktop)
 
         revision_color_m = '#2ecc71' if num_rev_mobile == 1 else ('#f1c40f' if num_rev_mobile <= 3 else '#e74c3c')
         revision_color_d = '#2ecc71' if num_rev_desktop == 1 else ('#f1c40f' if num_rev_desktop <= 3 else '#e74c3c')
 
-        ant_fecha_m = hist_ant_mobile['fecha_ejecucion'].strftime(f"%d/%m/%Y") if hist_ant_mobile else "-"
-        ant_fecha_d = hist_ant_desktop['fecha_ejecucion'].strftime(f"%d/%m/%Y") if hist_ant_desktop else "-"
+        ant_fecha_m = hist_ant_mobile['fecha_ejecucion'].strftime("%d/%m/%Y") if hist_ant_mobile else "-"
+        ant_fecha_d = hist_ant_desktop['fecha_ejecucion'].strftime("%d/%m/%Y") if hist_ant_desktop else "-"
 
         body_html = f"""
         <!DOCTYPE html>
@@ -1221,15 +1237,12 @@ def enviar_correo_no_responsive(marca_db, path_excel_mobile, path_excel_desktop,
         print(f"❌ Error enviando correo no responsive a {destinatario_str}: {e}")
         return False
 
-# =====================================================================
-# MOTOR PRINCIPAL DE AUDITORÍA
-# Aquí está la lógica central: descarga el sheet, rastrea cada URL,
-# compara los contenidos, genera el Excel y guarda el histórico.
-# =====================================================================
+
+# --- auditoría ---
 
 def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=None, progress_callback=None, df_contenido=None):
-    marca_id   = marca_db['id']
-    marca_nom  = marca_db['marca']
+    marca_id  = marca_db['id']
+    marca_nom = marca_db['marca']
 
     if df_contenido is None:
         df_contenido = descargar_hoja_sheets(marca_db['doc_contenido'])
@@ -1252,7 +1265,7 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
             results.append(fut.result())
             done += 1
             if progress_callback:
-                progress_callback(done, total, fut.result().get('Dirección',''))
+                progress_callback(done, total, fut.result().get('Dirección', ''))
 
     df_live = pd.DataFrame(results)
     df_contenido['URL_clean'] = df_contenido['URL'].astype(str).str.strip()
@@ -1303,12 +1316,12 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         norm = str(col_real).strip().lower()
         if norm in MAPA_COLUMNAS and col_real != MAPA_COLUMNAS[norm]:
             renombrar[col_real] = MAPA_COLUMNAS[norm]
-    
+
     if renombrar:
         df = df.rename(columns=renombrar)
-        
+
     df = df.loc[:, ~df.columns.duplicated()].copy()
-        
+
     if 'URL' in df.columns:
         df['URL'] = df['URL'].astype(str).str.strip()
         df = df[df['URL'] != '']
@@ -1320,17 +1333,18 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         print(f"[{marca_nom}] El documento quedó vacío tras filtrar URLs.")
         return None
 
-    for col in ['Meta Título','Meta Descripción','H1','H2','H3','Descripción Corta','Descripción Larga']:
+    for col in ['Meta Título', 'Meta Descripción', 'H1', 'H2', 'H3', 'Descripción Corta', 'Descripción Larga']:
         if col in df.columns:
             df[col] = df[col].apply(limpiar_html)
 
-    for col in ['Título 1','Meta Description 1','H1-1','Descripción corta 1','Descripción larga 1']:
+    for col in ['Título 1', 'Meta Description 1', 'H1-1', 'Descripción corta 1', 'Descripción larga 1']:
         if col in df.columns:
             df[col] = df[col].apply(limpiar_html)
 
-    for col in ['Meta Título','Título 1']:
+    # normalizar separador de título (guiones → pipe) para comparación consistente
+    for col in ['Meta Título', 'Título 1']:
         if col in df.columns:
-            df[col] = df[col].str.replace('-','|', regex=False)
+            df[col] = df[col].str.replace('-', '|', regex=False)
 
     palabra = marca_db.get('palabra_excluir', '').strip()
     if palabra and 'Título 1' in df.columns:
@@ -1342,8 +1356,8 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
             return pd.Series(['Sin datos'] * len(df))
         if b not in df.columns:
             return pd.Series(['Sin datos'] * len(df))
-        
-        # Usar Código_Final si existe, si no Código de respuesta (solo si es numérico)
+
+        # Código_Final si existe; si no, parsear Código de respuesta
         def get_code(row_idx):
             if 'Código_Final' in df.columns:
                 v = df['Código_Final'].iloc[row_idx]
@@ -1353,46 +1367,43 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
             v2 = df['Código de respuesta'].iloc[row_idx]
             if pd.notna(v2):
                 s = str(v2).split('->')[0].strip()
-                if s.replace('.','').isdigit():
+                if s.replace('.', '').isdigit():
                     return int(float(s))
             return 0
-        
+
         serie_a = normalizar(df[a])
         serie_b = normalizar(df[b])
         matches = (serie_a == serie_b)
-        
+
         res = []
         for i in range(len(df)):
             code = get_code(i)
-            val_a = str(df[a].iloc[i]).strip().lower()
-            
-            # code==0 significa que no se pudo leer el código → comparar de todas formas
-            # code==200 → OK. Cualquier otro código HTTP real (301,404,etc) → marcar error
+            # code==0 → no se pudo leer el código, comparar de todas formas
+            # code==200 → OK; cualquier otro código HTTP real → error
             if code not in (0, 200):
                 res.append(f"No (HTTP {code})")
             else:
-                # Normalizar val_a y val_b con NFKC antes de comparar contra 'vacío'
                 val_a_norm = unicodedata.normalize('NFKC', str(df[a].iloc[i])).strip().lower()
                 val_b_norm = unicodedata.normalize('NFKC', str(df[b].iloc[i])).strip().lower()
-                
+
                 is_a_empty = val_a_norm in ('', 'nan', 'vacío', 'vacio', 'none')
                 is_b_empty = val_b_norm in ('', 'nan', 'vacío', 'vacio', 'none')
-                
+
                 if is_a_empty and is_b_empty:
                     res.append('Sí')
                 elif is_a_empty:
                     res.append("No (No en documento)")
                 else:
                     res.append('Sí' if matches.iloc[i] else 'No')
-                
-        return pd.Series(res)
-    df['meta_titulo_coincide']        = coinc('Meta Título',      'Título 1')
-    df['meta_descripcion_coincide']   = coinc('Meta Descripción',  'Meta Description 1')
-    df['h1_coincide']                 = coinc('H1',               'H1-1')
-    df['desc_corta_coincide']         = coinc('Descripción Corta','Descripción corta 1')
-    df['desc_larga_coincide']         = coinc('Descripción Larga','Descripción larga 1')
 
-    # --- Nueva columna: H1 duplicado en descripción larga ---
+        return pd.Series(res)
+
+    df['meta_titulo_coincide']        = coinc('Meta Título',       'Título 1')
+    df['meta_descripcion_coincide']   = coinc('Meta Descripción',  'Meta Description 1')
+    df['h1_coincide']                 = coinc('H1',                'H1-1')
+    df['desc_corta_coincide']         = coinc('Descripción Corta', 'Descripción corta 1')
+    df['desc_larga_coincide']         = coinc('Descripción Larga', 'Descripción larga 1')
+
     df['h1_dup_desc_larga'] = df.apply(
         lambda r: detectar_h1_duplicado_en_desc_larga(
             r.get('H1-1', ''),
@@ -1401,10 +1412,10 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
     )
 
     def no_count(col): return df[col].astype(str).str.startswith('No').sum()
-    
-    codigo_orig = df['Código_Original'].fillna(0).astype(float).astype(int) if 'Código_Original' in df.columns else pd.Series([0] * len(df))
+
+    codigo_orig  = df['Código_Original'].fillna(0).astype(float).astype(int) if 'Código_Original' in df.columns else pd.Series([0] * len(df))
     codigo_final = df['Código_Final'].fillna(0).astype(float).astype(int) if 'Código_Final' in df.columns else pd.Series([0] * len(df))
-    
+
     stats = {
         'total':            total,
         'redireccion':      int(((codigo_orig >= 300) & (codigo_orig <= 399)).sum()),
@@ -1438,22 +1449,22 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         'h1_dup_desc_larga': 'H1 DUPLICADO EN DESC. LARGA'
     }
 
-    columnas_out = ['URL','Código de respuesta',
-        'Meta Título','meta_titulo_coincide','Título 1',
-        'Meta Descripción','meta_descripcion_coincide','Meta Description 1',
-        'H1','h1_coincide','H1-1',
+    columnas_out = ['URL', 'Código de respuesta',
+        'Meta Título', 'meta_titulo_coincide', 'Título 1',
+        'Meta Descripción', 'meta_descripcion_coincide', 'Meta Description 1',
+        'H1', 'h1_coincide', 'H1-1',
         'H2', 'H3',
-        'Descripción Corta','desc_corta_coincide','Descripción corta 1',
-        'Descripción Larga','desc_larga_coincide','Descripción larga 1',
-        'CONTENIDO_SF_H2_H3','h1_dup_desc_larga']
-    
+        'Descripción Corta', 'desc_corta_coincide', 'Descripción corta 1',
+        'Descripción Larga', 'desc_larga_coincide', 'Descripción larga 1',
+        'CONTENIDO_SF_H2_H3', 'h1_dup_desc_larga']
+
     df_final = df[[c for c in columnas_out if c in df.columns]].rename(columns=nuevo_nombre_columnas)
 
     ahora     = datetime.datetime.now()
     fecha_str = f"{ahora.day} {MESES_ES[ahora.month]} {ahora.year}"
     if num_rev is None:
-        num_rev   = siguiente_revision(marca_id)
-    
+        num_rev = siguiente_revision(marca_id)
+
     sufijo = f" - {sufijo_tipo}" if sufijo_tipo else ""
     nombre_archivo = f"{fecha_str} - {marca_nom}{sufijo} - Revision {num_rev}.xlsx"
     os.makedirs("Reportes", exist_ok=True)
@@ -1478,7 +1489,7 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         historico_ant = obtener_ultimo_historico(marca_id)
 
     arreglados = 0
-    cambiados = 0
+    cambiados  = 0
     if historico_ant:
         errores_prev = (historico_ant.get('urls_redireccion', 0) + historico_ant.get('urls_no_creadas', 0) +
                         historico_ant.get('urls_meta_titulo', 0) + historico_ant.get('urls_meta_descripcion', 0) +
@@ -1487,7 +1498,7 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         errores_curr = (stats['redireccion'] + stats['no_creadas'] +
                         stats['meta_titulo'] + stats['meta_descripcion'] +
                         stats['h1'] + stats['desc_corta'] + stats['desc_larga'])
-        
+
         arreglados, cambiados = calcular_cambios_contenido(
             historico_ant.get('ruta_reporte_excel'),
             path_excel,
@@ -1505,9 +1516,10 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         'fecha_str': fecha_str
     }
 
+
 def auditar_marca(marca_db, progress_callback=None):
-    marca_id   = marca_db['id']
-    marca_nom  = marca_db['marca']
+    marca_id      = marca_db['id']
+    marca_nom     = marca_db['marca']
     is_responsive = marca_db.get('responsive', True)
 
     if is_responsive:
@@ -1521,12 +1533,12 @@ def auditar_marca(marca_db, progress_callback=None):
             return None
 
         enviar_correo(
-            marca_db         = marca_db,
-            path_excel       = res['path_excel'],
-            stats            = res['stats'],
+            marca_db           = marca_db,
+            path_excel         = res['path_excel'],
+            stats              = res['stats'],
             historico_anterior = res['historico_ant'],
-            num_revision     = res['num_rev'],
-            fecha_str        = res['fecha_str']
+            num_revision       = res['num_rev'],
+            fecha_str          = res['fecha_str']
         )
 
         return res['path_excel']
@@ -1573,6 +1585,7 @@ def auditar_marca(marca_db, progress_callback=None):
 
         return res_mobile['path_excel']
 
+
 def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, sufijo_archivo):
     marca_nom = marca_db['marca']
 
@@ -1593,8 +1606,10 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
         'meta-título': 'Meta Título', 'meta title': 'Meta Título',
         'meta descripcion': 'Meta Descripción', 'meta descripción': 'Meta Descripción',
         'meta description': 'Meta Descripción',
-        'h1': 'H1', 'h2': 'H2', 'h3': 'H3', 'descripcion corta': 'Descripción Corta', 'short description': 'Descripción Corta',
-        'descripcion larga': 'Descripción Larga', 'long description': 'Descripción Larga', 'url': 'URL'
+        'h1': 'H1', 'h2': 'H2', 'h3': 'H3',
+        'descripcion corta': 'Descripción Corta', 'short description': 'Descripción Corta',
+        'descripcion larga': 'Descripción Larga', 'long description': 'Descripción Larga',
+        'url': 'URL'
     }
     renombrar = {}
     for col_real in df.columns:
@@ -1603,10 +1618,10 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
             renombrar[col_real] = MAPA_COLUMNAS[norm]
     if renombrar:
         df = df.rename(columns=renombrar)
-        
+
     df = df.loc[:, ~df.columns.duplicated()].copy()
-    for col in ['Meta Título','Meta Descripción','H1','H2','H3','Descripción Corta','Descripción Larga',
-                'Título 1','Meta Description 1','H1-1','Descripción corta 1','Descripción larga 1']:
+    for col in ['Meta Título', 'Meta Descripción', 'H1', 'H2', 'H3', 'Descripción Corta', 'Descripción Larga',
+                'Título 1', 'Meta Description 1', 'H1-1', 'Descripción corta 1', 'Descripción larga 1']:
         if col in df.columns:
             df[col] = df[col].apply(limpiar_html)
 
@@ -1618,7 +1633,7 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
     def coinc(a, b):
         if a not in df.columns or b not in df.columns:
             return pd.Series(['Sin datos'] * len(df))
-        
+
         def get_code(row_idx):
             if 'Código_Final' in df.columns:
                 v = df['Código_Final'].iloc[row_idx]
@@ -1628,10 +1643,10 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
             v2 = df['Código de respuesta'].iloc[row_idx]
             if pd.notna(v2):
                 s = str(v2).split('->')[0].strip()
-                if s.replace('.','').isdigit():
+                if s.replace('.', '').isdigit():
                     return int(float(s))
             return 0
-        
+
         serie_a = normalizar(df[a])
         serie_b = normalizar(df[b])
         matches = (serie_a == serie_b)
@@ -1640,10 +1655,10 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
             code = get_code(i)
             val_a = str(df[a].iloc[i]).strip().lower()
             val_b = str(df[b].iloc[i]).strip().lower()
-            
+
             is_a_empty = val_a in ('', 'nan', 'vacío', 'vacio', 'none')
             is_b_empty = val_b in ('', 'nan', 'vacío', 'vacio', 'none')
-            
+
             if code not in (0, 200):
                 res.append(f"No (HTTP {code})")
             elif is_a_empty and is_b_empty:
@@ -1660,7 +1675,6 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
     df['desc_corta_coincide']       = coinc('Descripción Corta', 'Descripción corta 1')
     df['desc_larga_coincide']       = coinc('Descripción Larga', 'Descripción larga 1')
 
-    # --- Nueva columna: H1 duplicado en descripción larga ---
     df['h1_dup_desc_larga'] = df.apply(
         lambda r: detectar_h1_duplicado_en_desc_larga(
             r.get('H1-1', ''),
@@ -1670,11 +1684,11 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
 
     stats = {
         'total': len(urls_manuales),
-        'meta_titulo':        int(df['meta_titulo_coincide'].astype(str).str.startswith('No').sum()),
-        'meta_descripcion':   int(df['meta_descripcion_coincide'].astype(str).str.startswith('No').sum()),
-        'h1':                 int(df['h1_coincide'].astype(str).str.startswith('No').sum()),
-        'desc_corta':         int(df['desc_corta_coincide'].astype(str).str.startswith('No').sum()),
-        'desc_larga':         int(df['desc_larga_coincide'].astype(str).str.startswith('No').sum()),
+        'meta_titulo':      int(df['meta_titulo_coincide'].astype(str).str.startswith('No').sum()),
+        'meta_descripcion': int(df['meta_descripcion_coincide'].astype(str).str.startswith('No').sum()),
+        'h1':               int(df['h1_coincide'].astype(str).str.startswith('No').sum()),
+        'desc_corta':       int(df['desc_corta_coincide'].astype(str).str.startswith('No').sum()),
+        'desc_larga':       int(df['desc_larga_coincide'].astype(str).str.startswith('No').sum()),
     }
 
     ahora = datetime.datetime.now()
@@ -1739,6 +1753,7 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
         'excel_path': f"Reportes/{nombre_archivo}"
     }
 
+
 def auditar_lista_manual(marca_db, urls_manuales):
     urls_manuales = [u.strip() for u in urls_manuales if u.strip()]
 
@@ -1801,6 +1816,7 @@ def auditar_lista_manual(marca_db, urls_manuales):
                 'excel_path': res_d['excel_path'],
             }
         }
+
 
 def enviar_correo_lista(marca_db, path_excel, stats, destinatarios=None, path_excel_desktop=None, stats_desktop=None):
     if destinatarios:
@@ -1945,9 +1961,8 @@ def enviar_correo_lista(marca_db, path_excel, stats, destinatarios=None, path_ex
         print(f"Error enviando correo de lista manual: {e}")
         return False
 
-# ─────────────────────────────────────────────────────────
-# SCHEDULER (hilo daemon)
-# ─────────────────────────────────────────────────────────
+
+# --- scheduler ---
 
 def _trabajo_programado():
     """Revisa todas las marcas y lanza auditoría para las que llevan 15+ días sin rastrear."""
@@ -1969,17 +1984,16 @@ def _trabajo_programado():
             else:
                 print(f"  OK {marca_nombre}: ultima auditoria hace {dias} dia(s). Sin accion.", flush=True)
 
+
 def iniciar_scheduler():
-    # Al arrancar el servidor, hacemos una revisión inmediata para no esperar al cron
+    # revisión inmediata al arrancar para no esperar al primer cron de las 2 AM
     def _arranque():
-        # Esperamos 5 segundos para que Flask termine de levantar
-        time.sleep(5)
+        time.sleep(5)  # dejar que Flask termine de levantar
         print("[Scheduler] Verificando auditorias pendientes al arranque...", flush=True)
         _trabajo_programado()
 
     threading.Thread(target=_arranque, daemon=True).start()
 
-    # Además, programamos una revisión diaria a las 2 AM
     schedule.every().day.at("02:00").do(_trabajo_programado)
 
     def _loop():
@@ -1990,4 +2004,3 @@ def iniciar_scheduler():
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
     print("Scheduler iniciado: verificacion inmediata + auditorias diarias a las 02:00 AM.", flush=True)
-
