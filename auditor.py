@@ -27,7 +27,7 @@ from email.mime.application import MIMEApplication
 from openpyxl import load_workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Font
 from oauth2client.service_account import ServiceAccountCredentials
 
 # ─────────────────────────────────────────────────────────
@@ -104,6 +104,56 @@ def extraer_h2h3_html(soup):
     tags = soup.find_all(['h2', 'h3'])
     out = [f"[{t.name.upper()}] {t.get_text(strip=True)}" for t in tags if t.get_text(strip=True)]
     return " | ".join(out) if out else "Ninguno"
+
+def _normalizar_para_comparar(texto):
+    """Quita acentos, pasa a minúsculas y colapsa espacios para comparar textos."""
+    if not texto:
+        return ""
+    s = unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('utf-8')
+    return re.sub(r'\s+', ' ', s).strip().lower()
+
+def detectar_h1_duplicado_en_desc_larga(h1_vivo, desc_larga_vivo, umbral=0.95):
+    """
+    Revisa si algún H2 dentro de la descripción larga (rastreada en vivo)
+    es muy similar al H1 de la URL.
+    Retorna 'H1 duplicado en descripción larga' si se detecta similitud,
+    o '' (cadena vacía) si no hay problema.
+    El umbral de similitud es 0.82 (82%) usando SequenceMatcher.
+    """
+    if not h1_vivo or not desc_larga_vivo:
+        return ''
+    from difflib import SequenceMatcher
+    from bs4 import BeautifulSoup as _BS
+
+    h1_norm = _normalizar_para_comparar(h1_vivo)
+    if not h1_norm:
+        return ''
+
+    # Intentar parsear la desc larga como HTML para extraer H2s reales
+    try:
+        soup_dl = _BS(str(desc_larga_vivo), 'html.parser')
+        h2_tags = [t.get_text(strip=True) for t in soup_dl.find_all('h2') if t.get_text(strip=True)]
+    except Exception:
+        h2_tags = []
+
+    # Si no encontró H2s con HTML, buscar patrones [H2] en texto plano (formato de CONTENIDO_SF_H2_H3)
+    if not h2_tags:
+        for parte in str(desc_larga_vivo).split('|'):
+            parte = parte.strip()
+            if parte.upper().startswith('[H2]'):
+                h2_tags.append(re.sub(r'^\[H2\]\s*', '', parte, flags=re.IGNORECASE).strip())
+
+    for h2_texto in h2_tags:
+        h2_norm = _normalizar_para_comparar(h2_texto)
+        if not h2_norm:
+            continue
+        ratio = SequenceMatcher(None, h1_norm, h2_norm).ratio()
+        # También detectar cuando el H1 aparece como prefijo exacto dentro del H2
+        h1_es_prefijo = h2_norm.startswith(h1_norm) and len(h1_norm) >= 10
+        if ratio >= umbral or h1_es_prefijo:
+            return 'H1 duplicado en descripción larga'
+
+    return ''
 
 # =====================================================================
 # ACCESO A LA BASE DE DATOS
@@ -691,12 +741,24 @@ def aplicar_formato_excel(path_excel):
             (idx('Descripción Larga (Hoja de Contenido)'),  idx('Descripción Larga (Rastreo en Vivo)'),  idx('DESCRIPCION_LARGA_COINCIDE')),
         ]
 
+        # Columna de alerta H1 duplicado en desc. larga
+        rojo_fuerte_fill = PatternFill(start_color='FF4444', end_color='FF4444', fill_type='solid')
+        blanco_font      = Font(color='FFFFFFFF', bold=True)
+        col_h1_dup = idx('H1 DUPLICADO EN DESC. LARGA')
+
         for row in range(2, ws.max_row + 1):
             # Colorear fondo rojo en columnas COINCIDE que no dicen "Sí"
             for ci in cols_coincide:
                 celda = ws.cell(row=row, column=ci)
                 if str(celda.value).strip().lower() != 'sí':
                     celda.fill = rojo_fill
+
+            # Colorear rojo intenso la celda de H1 duplicado si tiene alerta
+            if col_h1_dup != -1:
+                celda_dup = ws.cell(row=row, column=col_h1_dup)
+                if str(celda_dup.value).strip():  # tiene texto = hay alerta
+                    celda_dup.fill = rojo_fuerte_fill
+                    celda_dup.font = blanco_font
 
             for cc, cr, cq in pares:
                 if -1 in (cc, cr, cq):
@@ -1330,6 +1392,14 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
     df['desc_corta_coincide']         = coinc('Descripción Corta','Descripción corta 1')
     df['desc_larga_coincide']         = coinc('Descripción Larga','Descripción larga 1')
 
+    # --- Nueva columna: H1 duplicado en descripción larga ---
+    df['h1_dup_desc_larga'] = df.apply(
+        lambda r: detectar_h1_duplicado_en_desc_larga(
+            r.get('H1-1', ''),
+            r.get('Descripción larga 1', '')
+        ), axis=1
+    )
+
     def no_count(col): return df[col].astype(str).str.startswith('No').sum()
     
     codigo_orig = df['Código_Original'].fillna(0).astype(float).astype(int) if 'Código_Original' in df.columns else pd.Series([0] * len(df))
@@ -1364,7 +1434,8 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         'h1_coincide': 'H1_COINCIDE',
         'desc_corta_coincide': 'DESCRIPCION_CORTA_COINCIDE',
         'desc_larga_coincide': 'DESCRIPCION_LARGA_COINCIDE',
-        'CONTENIDO_SF_H2_H3': 'Títulos H2-H3 (Rastreo en Vivo)'
+        'CONTENIDO_SF_H2_H3': 'Títulos H2-H3 (Rastreo en Vivo)',
+        'h1_dup_desc_larga': 'H1 DUPLICADO EN DESC. LARGA'
     }
 
     columnas_out = ['URL','Código de respuesta',
@@ -1374,7 +1445,7 @@ def _ejecutar_auditoria_core(marca_db, user_agent=None, sufijo_tipo="", num_rev=
         'H2', 'H3',
         'Descripción Corta','desc_corta_coincide','Descripción corta 1',
         'Descripción Larga','desc_larga_coincide','Descripción larga 1',
-        'CONTENIDO_SF_H2_H3']
+        'CONTENIDO_SF_H2_H3','h1_dup_desc_larga']
     
     df_final = df[[c for c in columnas_out if c in df.columns]].rename(columns=nuevo_nombre_columnas)
 
@@ -1589,6 +1660,14 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
     df['desc_corta_coincide']       = coinc('Descripción Corta', 'Descripción corta 1')
     df['desc_larga_coincide']       = coinc('Descripción Larga', 'Descripción larga 1')
 
+    # --- Nueva columna: H1 duplicado en descripción larga ---
+    df['h1_dup_desc_larga'] = df.apply(
+        lambda r: detectar_h1_duplicado_en_desc_larga(
+            r.get('H1-1', ''),
+            r.get('Descripción larga 1', '')
+        ), axis=1
+    )
+
     stats = {
         'total': len(urls_manuales),
         'meta_titulo':        int(df['meta_titulo_coincide'].astype(str).str.startswith('No').sum()),
@@ -1616,7 +1695,8 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
         'h1_coincide': 'H1_COINCIDE',
         'desc_corta_coincide': 'DESCRIPCION_CORTA_COINCIDE',
         'desc_larga_coincide': 'DESCRIPCION_LARGA_COINCIDE',
-        'CONTENIDO_SF_H2_H3': 'Títulos H2-H3 (Rastreo en Vivo)'
+        'CONTENIDO_SF_H2_H3': 'Títulos H2-H3 (Rastreo en Vivo)',
+        'h1_dup_desc_larga': 'H1 DUPLICADO EN DESC. LARGA'
     }
     cols_out = ['Dirección', 'Código de respuesta',
                 'Meta Título', 'meta_titulo_coincide', 'Título 1',
@@ -1625,7 +1705,7 @@ def _auditar_lista_un_modo(marca_db, urls_manuales, df_filtrado, user_agent, suf
                 'H2', 'H3',
                 'Descripción Corta', 'desc_corta_coincide', 'Descripción corta 1',
                 'Descripción Larga', 'desc_larga_coincide', 'Descripción larga 1',
-                'CONTENIDO_SF_H2_H3']
+                'CONTENIDO_SF_H2_H3', 'h1_dup_desc_larga']
     df_final = df[[c for c in cols_out if c in df.columns]].rename(columns=nuevo_nombre_columnas)
     df_final.to_excel(path_excel, index=False)
     aplicar_formato_excel(path_excel)
